@@ -1,0 +1,60 @@
+import React, { useId } from "react";
+
+function AppLogo({ size = 48 }) {
+  const gradientId = useId();
+
+  const backgroundGradientId = `${gradientId}-background`;
+  const iconGradientId = `${gradientId}-icon`;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 60 60"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="app-logo"
+      aria-hidden="true"
+    >
+      <rect
+        width="59.6992"
+        height="59.6992"
+        rx="12"
+        fill={`url(#${backgroundGradientId})`}
+      />
+
+      <path
+        d="M30.0259 8.47803C40.7561 8.47803 49.4546 17.1766 49.4546 27.9067C49.4546 34.6617 46.0062 40.61 40.7749 44.0913L38.4771 49.5933C38.1602 50.3509 37.1151 50.425 36.6948 49.7192L34.9077 46.7163C33.3478 47.12 31.712 47.3354 30.0259 47.3354C28.3398 47.3354 26.704 47.12 25.144 46.7163L23.3569 49.7192C22.9366 50.4248 21.8914 50.351 21.5747 49.5933L19.2759 44.0913C14.0449 40.6099 10.5972 34.6614 10.5972 27.9067C10.5972 17.1766 19.2957 8.47804 30.0259 8.47803ZM20.6187 24.021C19.3763 24.0211 18.3696 25.7608 18.3696 27.9067C18.3696 30.0527 19.3763 31.7924 20.6187 31.7925C21.8611 31.7925 22.8687 30.0528 22.8687 27.9067C22.8686 25.7607 21.8611 24.021 20.6187 24.021ZM39.4341 24.021C38.1916 24.021 37.1841 25.7607 37.1841 27.9067C37.1841 30.0528 38.1916 31.7925 39.4341 31.7925C40.6764 31.7922 41.6831 30.0526 41.6831 27.9067C41.6831 25.7609 40.6764 24.0213 39.4341 24.021Z"
+        fill={`url(#${iconGradientId})`}
+      />
+
+      <defs>
+        <linearGradient
+          id={backgroundGradientId}
+          x1="29.8496"
+          y1="0"
+          x2="29.8496"
+          y2="59.6992"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#11C6CD" />
+          <stop offset="1" stopColor="#007899" />
+        </linearGradient>
+
+        <linearGradient
+          id={iconGradientId}
+          x1="30.2304"
+          y1="25.0153"
+          x2="30.2304"
+          y2="28.9527"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#B0FCFF" />
+          <stop offset="1" stopColor="#F8FDFF" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
+export default AppLogo;

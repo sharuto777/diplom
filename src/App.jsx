@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./styles/styles.css";
 import AppLogo from "./components/AppLogo.jsx";
 
@@ -24,52 +24,6 @@ const menuItems = [
   "Статистика",
   "Профиль",
 ];
-
-const exercisesByMuscle = {
-  Спина: [
-    "Подтягивания",
-    "Тяга верхнего блока",
-    "Тяга штанги в наклоне",
-    "Горизонтальная тяга",
-    "Гиперэкстензия",
-  ],
-  Грудь: [
-    "Жим лёжа",
-    "Жим гантелей",
-    "Разводка гантелей",
-    "Отжимания на брусьях",
-    "Кроссовер",
-  ],
-  Ноги: [
-    "Приседания",
-    "Жим ногами",
-    "Выпады",
-    "Румынская тяга",
-    "Подъём на носки",
-  ],
-  Плечи: [
-    "Жим гантелей сидя",
-    "Махи в стороны",
-    "Тяга к подбородку",
-    "Армейский жим",
-    "Разведения в наклоне",
-  ],
-  Пресс: [
-    "Скручивания",
-    "Планка",
-    "Подъём ног",
-    "Велосипед",
-    "Русские повороты",
-  ],
-};
-
-const muscleCombinations = {
-  Спина: ["Бицепс", "Задняя дельта", "Пресс"],
-  Грудь: ["Трицепс", "Плечи", "Пресс"],
-  Ноги: ["Пресс", "Икры", "Ягодицы"],
-  Плечи: ["Трицепс", "Грудь", "Пресс"],
-  Пресс: ["Спина", "Ноги", "Кардио"],
-};
 
 const menuIcons = {
   Задачи: (
@@ -120,10 +74,14 @@ const menuIcons = {
 
 
 function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [subscription, setSubscription] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [activePage, setActivePage] = useState("Задачи");
+  const [activePage, setActivePage] = useState(() => {
+    return localStorage.getItem("activePage") || "Задачи";
+  });
   const [tasks, setTasks] = useState([]);
-
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   
   const [taskGroups, setTaskGroups] = useState([]);
   const [activeTaskGroupId, setActiveTaskGroupId] = useState("all");
@@ -137,8 +95,6 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const [selectedMuscle, setSelectedMuscle] = useState("Спина");
-  const [availableExercises, setAvailableExercises] = useState([]);
-  const [compatibleGroups, setCompatibleGroups] = useState([]);
 
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [isSavingWorkout, setIsSavingWorkout] = useState(false);
@@ -146,13 +102,24 @@ function App() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isWorkoutModalOpen, setIsWorkoutModalOpen] = useState(false);
 
-  useEffect(() => {
-    loadTasks();
-    loadTaskGroups();
-  }, []);
+  const [muscleGroups, setMuscleGroups] = useState([]);
+  const [availableExercises, setAvailableExercises] = useState([]);
+  const [compatibleGroups, setCompatibleGroups] = useState([]);
+
+  const [isFocusModeOpen, setIsFocusModeOpen] = useState(false);
+  const [focusTask, setFocusTask] = useState(null);
 
   useEffect(() => {
-  loadWorkoutRecommendations();
+  const savedToken = localStorage.getItem("token");
+
+  loadMuscleGroups();
+  loadExercises();
+
+  if (savedToken) {
+    checkAuth(savedToken);
+  } else {
+    setIsAuthChecking(false);
+  }
 }, []);
 
   const filteredTasks = useMemo(() => {
@@ -166,12 +133,6 @@ function App() {
     const matchesGroup =
       activeTaskGroupId === "all" || task.groupId === activeTaskGroupId;
 
-    const matchesFilter =
-      taskFilter === "Все" ||
-      (taskFilter === "Тренировки" && task.category === "Тренировка") ||
-      (taskFilter === "Выполненные" && task.status === "Выполнена") ||
-      (taskFilter === "Сегодня" && task.date !== "Без срока");
-
     const exerciseNames = (task.exercises || []).map((exercise) =>
       typeof exercise === "string" ? exercise : exercise.name
     );
@@ -179,6 +140,7 @@ function App() {
     const searchableText = [
       task.title,
       task.description,
+      task.microStep,
       task.priority,
       task.status,
       task.date,
@@ -192,45 +154,281 @@ function App() {
     const matchesSearch =
       normalizedSearch === "" || searchableText.includes(normalizedSearch);
 
-    return matchesGroup && matchesFilter && matchesSearch;
+    return matchesGroup && matchesSearch;
   });
 }, [tasks, taskFilter, searchQuery, activeTaskGroupId]);
 
-  function loadTasks() {
-  fetch(`${API_URL}/tasks`)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`Ошибка загрузки задач: ${response.status}`);
+
+function checkAuth(token) {
+  fetch(`${API_URL}/auth/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+
+        setCurrentUser(null);
+        setSubscription(null);
+        setIsLoggedIn(false);
+        setTasks([]);
+
+        return;
       }
 
-      return response.json();
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      setCurrentUser(data.user);
+      setSubscription(data.subscription);
+      setIsLoggedIn(true);
+
+      loadTasks(token);
+      loadTaskGroups(token);
     })
+    .catch((error) => {
+      console.error("Ошибка проверки авторизации:", error);
+
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+
+      setCurrentUser(null);
+      setSubscription(null);
+      setIsLoggedIn(false);
+      setTasks([]);
+    })
+    .finally(() => {
+      setIsAuthChecking(false);
+    });
+}
+
+function registerUser(formData) {
+  fetch(`${API_URL}/auth/register`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(formData),
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      setCurrentUser(data.user);
+      setSubscription(data.subscription);
+      setIsLoggedIn(true);
+
+      loadTasks(data.token);
+      loadTaskGroups(data.token);
+
+    })
+    .catch((error) => {
+      console.error("Ошибка регистрации:", error);
+      alert("Не удалось зарегистрироваться");
+    });
+}
+
+function loginAsGuest() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+
+  setCurrentUser({
+    id: "guest",
+    username: "Гость",
+    email: null,
+    role: "guest",
+    is_guest: true,
+  });
+
+  setSubscription({
+    name: "Гость",
+    code: "guest",
+    max_tasks: null,
+    max_workouts: null,
+    has_extended_stats: false,
+    has_extended_exercises: false,
+    has_ready_programs: false,
+    has_progress_history: false,
+    has_export: false,
+    has_no_ads: false,
+  });
+
+  setTasks([]);
+  setIsLoggedIn(true);
+  setActivePage("Задачи");
+}
+
+
+function loginUser(formData) {
+  fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(formData),
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      setCurrentUser(data.user);
+      setSubscription(data.subscription);
+      setIsLoggedIn(true);
+
+      loadTasks(data.token);
+      loadTaskGroups(data.token);
+    })
+    .catch((error) => {
+      console.error("Ошибка входа:", error);
+      alert("Не удалось войти");
+    });
+}
+
+function logout() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  localStorage.removeItem("activePage");
+
+  setCurrentUser(null);
+  setSubscription(null);
+  setIsLoggedIn(false);
+  setTasks([]);
+  setTaskGroups([]);
+  setActivePage("Задачи");
+}
+
+  function loadMuscleGroups() {
+    fetch(`${API_URL}/muscle-groups`)
+      .then((response) => response.json())
+      .then((data) => {
+        setMuscleGroups(data);
+      })
+      .catch((error) => {
+        console.error("Ошибка загрузки групп мышц:", error);
+      });
+  }
+
+  function loadExercises() {
+  fetch(`${API_URL}/exercises`)
+    .then((response) => response.json())
     .then((data) => {
       if (!Array.isArray(data)) {
-        throw new Error("Сервер вернул не массив задач");
+        console.error("Ошибка загрузки упражнений:", data);
+        setAvailableExercises([]);
+        return;
+      }
+
+      setAvailableExercises(data);
+    })
+    .catch((error) => {
+      console.error("Ошибка загрузки упражнений:", error);
+      setAvailableExercises([]);
+    });
+}
+
+  function loadMuscleCombinations(muscle) {
+    fetch(`${API_URL}/muscle-combinations?muscle=${encodeURIComponent(muscle)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        setCompatibleGroups(data.map((item) => item.recommended_muscle_group));
+      })
+      .catch((error) => {
+        console.error("Ошибка загрузки совместимых групп:", error);
+      });
+  }
+
+  useEffect(() => {
+    if (selectedMuscle) {
+      loadMuscleCombinations(selectedMuscle);
+    }
+  }, [selectedMuscle]);
+
+  useEffect(() => {
+      localStorage.setItem("activePage", activePage);
+    }, [activePage]);
+
+  function loadTasks(token = localStorage.getItem("token")) {
+  if (!token) {
+    return;
+  }
+
+  fetch(`${API_URL}/tasks`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        console.error(data.error);
+        return;
       }
 
       setTasks(data.map(formatTaskFromApi));
     })
     .catch((error) => {
       console.error("Ошибка загрузки задач:", error);
-      setTasks([]);
     });
 }
 
-  function loadTaskGroups() {
-  fetch(`${API_URL}/task-groups`)
-    .then((response) => response.json())
+function loadTaskGroups(token = localStorage.getItem("token")) {
+  if (!token || currentUser?.is_guest) {
+    setTaskGroups([]);
+    return;
+  }
+
+  fetch(`${API_URL}/task-groups`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then(async (response) => {
+      const contentType = response.headers.get("content-type");
+
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(`Сервер вернул не JSON. Статус: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Ошибка загрузки групп задач");
+      }
+
+      return data;
+    })
     .then((data) => {
-      setTaskGroups(data);
+      setTaskGroups(Array.isArray(data) ? data : []);
     })
     .catch((error) => {
       console.error("Ошибка загрузки групп задач:", error);
+      setTaskGroups([]);
     });
 }
 
 function createTaskGroup(formData) {
   if (isSavingGroup) {
+    return;
+  }
+
+  const token = localStorage.getItem("token");
+
+  if (!token || currentUser?.is_guest) {
+    alert("Группы задач доступны только зарегистрированным пользователям.");
     return;
   }
 
@@ -240,6 +438,7 @@ function createTaskGroup(formData) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(formData),
   })
@@ -253,7 +452,7 @@ function createTaskGroup(formData) {
     .then((group) => {
       setIsGroupModalOpen(false);
       setActiveTaskGroupId(group.id);
-      loadTaskGroups();
+      loadTaskGroups(token);
     })
     .catch((error) => {
       console.error("Ошибка создания группы:", error);
@@ -263,38 +462,73 @@ function createTaskGroup(formData) {
     });
 }
 
-  function loadWorkoutRecommendations() {
-  fetch(`${API_URL}/exercises`)
-    .then((response) => response.json())
-    .then((data) => {
-      setAvailableExercises(data);
-    })
-    .catch((error) => {
-      console.error("Ошибка загрузки упражнений:", error);
-    });
-}
-
 function markWorkoutExerciseDone(workoutExerciseId) {
+  if (currentUser?.is_guest) {
+    setTasks((currentTasks) =>
+      currentTasks.map((task) => {
+        if (task.category !== "Тренировка" || !task.exercises) {
+          return task;
+        }
+
+        return {
+          ...task,
+          exercises: task.exercises.map((exercise) =>
+            exercise.id === workoutExerciseId
+              ? { ...exercise, is_completed: true }
+              : exercise
+          ),
+        };
+      })
+    );
+
+    return;
+  }
+
+  const token = localStorage.getItem("token");
+
   fetch(`${API_URL}/workout-exercises/${workoutExerciseId}/complete`, {
     method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   })
     .then((response) => response.json())
-    .then(loadTasks)
+    .then(() => loadTasks(token))
     .catch((error) => {
       console.error("Ошибка обновления упражнения:", error);
     });
 }
 
-  function markTaskDone(id) {
-    fetch(`${API_URL}/tasks/${id}/complete`, {
-      method: "PATCH",
-    })
-      .then((response) => response.json())
-      .then(loadTasks)
-      .catch((error) => {
-        console.error("Ошибка обновления задачи:", error);
-      });
+function markTaskDone(id) {
+  if (currentUser?.is_guest) {
+    setTasks((currentTasks) =>
+      currentTasks.map((task) =>
+        task.id === id
+          ? {
+              ...task,
+              status: task.status === "Выполнена" ? "В процессе" : "Выполнена",
+            }
+          : task
+      )
+    );
+
+    return;
   }
+
+  const token = localStorage.getItem("token");
+
+  fetch(`${API_URL}/tasks/${id}/complete`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then(() => loadTasks(token))
+    .catch((error) => {
+      console.error("Ошибка обновления задачи:", error);
+    });
+}
 
   function deleteAllTasks() {
     fetch(`${API_URL}/tasks`, {
@@ -307,7 +541,7 @@ function markWorkoutExerciseDone(workoutExerciseId) {
       });
   }
 
-  function deleteTaskGroup(groupId) {
+function deleteTaskGroup(groupId) {
   const confirmed = window.confirm(
     "Удалить группу? Задачи из неё останутся и перейдут во «Все задачи»."
   );
@@ -316,8 +550,13 @@ function markWorkoutExerciseDone(workoutExerciseId) {
     return;
   }
 
+  const token = localStorage.getItem("token");
+
   fetch(`${API_URL}/task-groups/${groupId}`, {
     method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   })
     .then((response) => {
       if (!response.ok) {
@@ -331,63 +570,145 @@ function markWorkoutExerciseDone(workoutExerciseId) {
         setActiveTaskGroupId("all");
       }
 
-      loadTaskGroups();
-      loadTasks();
+      loadTaskGroups(token);
+      loadTasks(token);
     })
     .catch((error) => {
       console.error("Ошибка удаления группы:", error);
     });
 }
 
-  function deleteTask(id) {
-    if (!id || String(id).length < 20) {
-      return;
-    }
-
-    fetch(`${API_URL}/tasks/${id}`, {
-      method: "DELETE",
-    })
-      .then((response) => response.json())
-      .then(loadTasks)
-      .catch((error) => {
-        console.error("Ошибка удаления задачи:", error);
-      });
+ function deleteTask(id) {
+  if (!id) {
+    return;
   }
 
-  function createTask(formData) {
-  if (isSavingTask) {
+  if (currentUser?.is_guest) {
+    setTasks((currentTasks) =>
+      currentTasks.filter((task) => task.id !== id)
+    );
+
+    return;
+  }
+
+  const token = localStorage.getItem("token");
+
+  fetch(`${API_URL}/tasks/${id}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then(() => loadTasks(token))
+    .catch((error) => {
+      console.error("Ошибка удаления задачи:", error);
+    });
+}
+
+function createTask(formData) {
+  const taskPayload = {
+    ...formData,
+    group_id: activeTaskGroupId !== "all" ? activeTaskGroupId : null,
+  };
+
+  if (currentUser?.is_guest) {
+    const selectedGroup = taskGroups.find(
+      (group) => group.id === taskPayload.group_id
+    );
+
+    const guestTask = {
+      id: crypto.randomUUID(),
+      title: taskPayload.title,
+      description: taskPayload.description || "",
+      microStep: taskPayload.micro_step || "",
+      category: taskPayload.category || "Личное",
+      priority: formatPriority(taskPayload.priority || "medium"),
+      status: "Новая",
+      date: formatDate(taskPayload.start_datetime),
+      rawDate: taskPayload.start_datetime,
+      groupId: selectedGroup?.id || null,
+      groupName: selectedGroup?.name || null,
+      groupColor: selectedGroup?.color || null,
+      exercises: null,
+    };
+
+    setTasks((currentTasks) => [guestTask, ...currentTasks]);
+    setIsTaskModalOpen(false);
+
+    return;
+  }
+
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    alert("Необходимо войти в аккаунт");
     return;
   }
 
   setIsSavingTask(true);
 
-  const taskData = {
-    ...formData,
-    group_id: activeTaskGroupId === "all" ? null : activeTaskGroupId,
-  };
-
   fetch(`${API_URL}/tasks`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(taskData),
+    body: JSON.stringify(taskPayload),
   })
     .then((response) => response.json())
-    .then(() => {
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      loadTasks(token);
       setIsTaskModalOpen(false);
-      loadTasks();
     })
     .catch((error) => {
       console.error("Ошибка создания задачи:", error);
+      alert("Не удалось создать задачу");
     })
     .finally(() => {
       setIsSavingTask(false);
     });
 }
 
-  function createWorkout(formData) {
-  if (isSavingWorkout) {
+ function createWorkout(formData) {
+  if (currentUser?.is_guest) {
+    const guestWorkout = {
+      id: crypto.randomUUID(),
+      title: formData.title,
+      description: formData.description || "",
+      category: "Тренировка",
+      priority: "Средний",
+      status: "Запланирована",
+      date:
+        formData.repeat_days && formData.repeat_days.length > 0
+          ? formData.repeat_days.join(", ")
+          : "Без срока",
+      rawDate: null,
+      repeatDays: formData.repeat_days || [],
+      muscle: formData.muscle_groups?.join(", ") || "",
+      exercises: (formData.exercises || []).map((exercise) => ({
+        id: exercise.exercise_id,
+        name: exercise.name,
+        is_completed: false,
+      })),
+    };
+
+    setTasks((currentTasks) => [guestWorkout, ...currentTasks]);
+    setIsWorkoutModalOpen(false);
+    setActivePage("Тренировки");
+
+    return;
+  }
+
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    alert("Необходимо войти в аккаунт");
     return;
   }
 
@@ -397,17 +718,24 @@ function markWorkoutExerciseDone(workoutExerciseId) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(formData),
   })
     .then((response) => response.json())
-    .then(() => {
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      loadTasks(token);
       setIsWorkoutModalOpen(false);
-      setActivePage("Задачи");
-      loadTasks();
+      setActivePage("Тренировки");
     })
     .catch((error) => {
       console.error("Ошибка создания тренировки:", error);
+      alert("Не удалось создать тренировку");
     })
     .finally(() => {
       setIsSavingWorkout(false);
@@ -438,7 +766,13 @@ function markWorkoutExerciseDone(workoutExerciseId) {
         return <StatsPage tasks={tasks} />;
 
       case "Профиль":
-        return <ProfilePage />;
+        return (
+          <ProfilePage
+            currentUser={currentUser}
+            subscription={subscription}
+            logout={logout}
+          />
+        );
 
       default:
         return (
@@ -460,6 +794,7 @@ function markWorkoutExerciseDone(workoutExerciseId) {
             setActiveTaskGroupId={setActiveTaskGroupId}
             openGroupModal={() => setIsGroupModalOpen(true)}
             deleteTaskGroup={deleteTaskGroup}
+            openFocusMode={(task) => setFocusTask(task)}
           />
         );
     }
@@ -544,12 +879,13 @@ function markWorkoutExerciseDone(workoutExerciseId) {
         />
       )}
 
+
+
       {isWorkoutModalOpen && (
         <WorkoutModal
           onClose={() => setIsWorkoutModalOpen(false)}
           onSubmit={createWorkout}
-          selectedMuscle={selectedMuscle}
-          setSelectedMuscle={setSelectedMuscle}
+          muscleGroups={muscleGroups}
           availableExercises={availableExercises}
           compatibleGroups={compatibleGroups}
           isSaving={isSavingWorkout}
@@ -564,20 +900,242 @@ function markWorkoutExerciseDone(workoutExerciseId) {
         />
       )}
 
-      {!isLoggedIn && <AuthModal onLogin={() => setIsLoggedIn(true)} />}
+      {!isAuthChecking && !isLoggedIn && (
+      <AuthModal
+        onLogin={loginUser}
+        onRegister={registerUser}
+        onGuestLogin={loginAsGuest}
+      />
+    )}
+
+    {focusTask && (
+      <FocusMode
+        task={focusTask}
+        markTaskDone={markTaskDone}
+        onClose={() => setFocusTask(null)}
+      />
+    )}
     </div>
   );
 
   
 }
 
-function AuthModal({ onLogin }) {
+function FocusMode({ task, markTaskDone, onClose }) {
+  const [focusMinutes, setFocusMinutes] = useState(25);
+  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+  useEffect(() => {
+    if (!isTimerRunning) {
+      return;
+    }
+
+    if (secondsLeft <= 0) {
+      setIsTimerRunning(false);
+      return;
+    }
+
+    const timerId = setInterval(() => {
+      setSecondsLeft((currentSeconds) => currentSeconds - 1);
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [isTimerRunning, secondsLeft]);
+
+  function formatTimer(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    return `${String(minutes).padStart(2, "0")}:${String(
+      remainingSeconds
+    ).padStart(2, "0")}`;
+  }
+
+  function getPrioritySymbols(priority) {
+    if (priority === "high" || priority === "Высокий") {
+      return "!!!";
+    }
+
+    if (priority === "medium" || priority === "Средний") {
+      return "!!";
+    }
+
+    return "!";
+  }
+
+  function changeFocusMinutes(value) {
+    const minutes = Number(value);
+
+    if (!minutes || minutes < 1) {
+      setFocusMinutes(1);
+      setSecondsLeft(60);
+      setIsTimerRunning(false);
+      return;
+    }
+
+    if (minutes > 180) {
+      setFocusMinutes(180);
+      setSecondsLeft(180 * 60);
+      setIsTimerRunning(false);
+      return;
+    }
+
+    setFocusMinutes(minutes);
+    setSecondsLeft(minutes * 60);
+    setIsTimerRunning(false);
+  }
+
+  function resetTimer() {
+    setSecondsLeft(focusMinutes * 60);
+    setIsTimerRunning(false);
+  }
+
+  function completeTask() {
+    markTaskDone(task.id);
+    onClose();
+  }
+
+  return (
+    <div className="focus-backdrop">
+      <div className="focus-mode">
+        <div className="focus-top">
+          <div>
+            <span className="focus-label">Режим концентрации</span>
+            <h2>Работайте только над одной задачей</h2>
+          </div>
+
+          <button type="button" className="focus-close-btn" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="focus-time-control">
+          <span>Время фокуса</span>
+
+          <div className="focus-time-options">
+            {[15, 25, 45, 60].map((minutes) => (
+              <button
+                type="button"
+                key={minutes}
+                className={
+                  focusMinutes === minutes
+                    ? "focus-time-chip active"
+                    : "focus-time-chip"
+                }
+                onClick={() => changeFocusMinutes(minutes)}
+              >
+                {minutes} мин
+              </button>
+            ))}
+
+            <label className="focus-custom-time">
+              <input
+                type="number"
+                min="1"
+                max="180"
+                value={focusMinutes}
+                onChange={(event) => changeFocusMinutes(event.target.value)}
+              />
+              <span>мин</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="focus-timer-card">
+          <div className="focus-timer-ring">
+            <span>{formatTimer(secondsLeft)}</span>
+          </div>
+
+          <div className="focus-timer-actions">
+            <button
+              type="button"
+              className="focus-start-btn"
+              onClick={() => setIsTimerRunning((current) => !current)}
+            >
+              {isTimerRunning ? "Пауза" : "Старт"}
+            </button>
+
+            <button
+              type="button"
+              className="focus-secondary-btn"
+              onClick={resetTimer}
+            >
+              Сбросить
+            </button>
+          </div>
+        </div>
+
+        <div
+          className="focus-task-card"
+          style={{
+            "--task-group-color": task.groupColor || "#E6F8FA",
+          }}
+        >
+          <div className="focus-task-head">
+            <div>
+              <div className="focus-task-priority">
+                {getPrioritySymbols(task.priority)}
+              </div>
+
+              <h3>{task.title}</h3>
+            </div>
+
+            {task.groupName && (
+              <span className="focus-task-group">{task.groupName}</span>
+            )}
+          </div>
+
+          {task.description && (
+            <p className="focus-task-description">{task.description}</p>
+          )}
+
+          <div className="focus-task-meta">
+            <span>{task.date || "Без срока"}</span>
+          </div>
+        </div>
+
+        <div className="focus-bottom-actions">
+          <button
+            type="button"
+            className="focus-complete-btn"
+            onClick={completeTask}
+          >
+            Выполнить задачу
+          </button>
+
+          <button type="button" className="focus-secondary-btn" onClick={onClose}>
+            Выйти
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuthModal({ onLogin, onRegister, onGuestLogin }) {
+  
   const [authMode, setAuthMode] = useState("login");
+
   const isRegisterMode = authMode === "register";
 
   function handleSubmit(event) {
     event.preventDefault();
-    onLogin();
+
+    const formData = new FormData(event.currentTarget);
+
+    if (isRegisterMode) {
+      onRegister({
+        username: formData.get("username"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+      });
+    } else {
+      onLogin({
+        email: formData.get("email"),
+        password: formData.get("password"),
+      });
+    }
   }
 
   return (
@@ -599,95 +1157,72 @@ function AuthModal({ onLogin }) {
             </div>
 
             <form className="auth-form" onSubmit={handleSubmit}>
-              {isRegisterMode && (
-                <label className="auth-field">
-                  <span>Логин</span>
-                  <input
-                    type="text"
-                    placeholder="Введите логин"
-                    autoComplete="username"
-                    required
-                  />
-                </label>
-              )}
+  {isRegisterMode && (
+    <label>
+      Логин
+      <input
+        name="username"
+        type="text"
+        placeholder="Введите логин"
+        minLength="3"
+        required
+      />
+    </label>
+  )}
 
-              <label className="auth-field">
-                <span>Email</span>
-                <input
-                  type="email"
-                  placeholder="example@mail.com"
-                  autoComplete="email"
-                  required
-                />
-              </label>
+  <label>
+    Email
+    <input
+      name="email"
+      type="email"
+      placeholder="Введите email"
+      required
+    />
+  </label>
 
-              <label className="auth-field">
-                <span>Пароль</span>
-                <input
-                  type="password"
-                  placeholder="Введите пароль"
-                  autoComplete={
-                    isRegisterMode ? "new-password" : "current-password"
-                  }
-                  required
-                />
-              </label>
+  <label>
+    Пароль
+    <input
+      name="password"
+      type="password"
+      placeholder="Введите пароль"
+      minLength="6"
+      required
+    />
+  </label>
 
-              {isRegisterMode && (
-                <label className="auth-field">
-                  <span>Повторить пароль</span>
-                  <input
-                    type="password"
-                    placeholder="Повторите пароль"
-                    autoComplete="new-password"
-                    required
-                  />
-                </label>
-              )}
+  <button type="submit" className="primary-btn">
+    {isRegisterMode ? "Зарегистрироваться" : "Войти"}
+  </button>
 
-              {!isRegisterMode && (
-                <div className="auth-row">
-                  <label className="auth-checkbox">
-                    <input type="checkbox" />
-                    <span>Запомнить меня</span>
-                  </label>
-
-                  <button type="button" className="auth-link-btn">
-                    Забыли пароль?
-                  </button>
-                </div>
-              )}
-
-              <button type="submit" className="auth-submit">
-                {isRegisterMode ? "Зарегистрироваться" : "Войти"}
-              </button>
-
-              {!isRegisterMode && (
-                <button type="button" className="auth-guest" onClick={onLogin}>
-                  Продолжить как гость
-                </button>
-              )}
-            </form>
+  <button
+    type="button"
+    className="auth-guest-btn"
+    onClick={onGuestLogin}
+  >
+    Продолжить как гость
+  </button>
+</form>
 
             <div className="auth-divider">
-              <span>или</span>
-            </div>
+  <span>или</span>
+</div>
 
-            {isRegisterMode ? (
-              <p className="auth-register-text">
-                Уже есть аккаунт?{" "}
-                <button type="button" onClick={() => setAuthMode("login")}>
-                  Войти
-                </button>
-              </p>
-            ) : (
-              <p className="auth-register-text">
-                Нет аккаунта?{" "}
-                <button type="button" onClick={() => setAuthMode("register")}>
-                  Создать аккаунт
-                </button>
-              </p>
-            )}
+{isRegisterMode ? (
+  <p className="auth-register-text">
+    Уже есть аккаунт?{" "}
+    <button type="button" onClick={() => setAuthMode("login")}>
+      Войти
+    </button>
+  </p>
+) : (
+  <p className="auth-register-text">
+    Нет аккаунта?{" "}
+    <button type="button" onClick={() => setAuthMode("register")}>
+      Создать аккаунт
+    </button>
+  </p>
+)}
           </div>
         </section>
 
@@ -826,12 +1361,13 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
   const [deadlineMode, setDeadlineMode] = useState("today");
 
   const [form, setForm] = useState({
-  title: "",
-  description: "",
-  priority: "medium",
-  selected_date: "",
-  selected_time: "",
-});
+    title: "",
+    description: "",
+    micro_step: "",
+    priority: "medium",
+    selected_date: "",
+    selected_time: "",
+  });
 
   function updateField(field, value) {
     setForm((currentForm) => ({
@@ -875,20 +1411,33 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
   }
 
   function handleSubmit(event) {
-    event.preventDefault();
+  event.preventDefault();
 
-    if (isSaving) {
-      return;
-    }
+  if (isSaving) {
+    return;
+  }
+
+  const trimmedTitle = form.title.trim();
+
+  if (!trimmedTitle) {
+    alert("Введите название задачи");
+    return;
+  }
+
+  if (trimmedTitle.length > 60) {
+    alert("Название задачи не должно быть длиннее 60 символов");
+    return;
+  }
 
     onSubmit({
-      title: form.title,
-      description: form.description,
-      priority: form.priority,
-      start_datetime: buildDateTime(),
-      end_datetime: null,
-    });
-  }
+    title: trimmedTitle,
+    description: form.description,
+    micro_step: form.micro_step.trim(),
+    priority: form.priority,
+    start_datetime: buildDateTime(),
+    end_datetime: null,
+  });
+}
 
   return (
     <div className="modal-backdrop">
@@ -904,10 +1453,15 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
           <span>Название</span>
           <input
             value={form.title}
+            maxLength={60}
             onChange={(event) => updateField("title", event.target.value)}
             placeholder="Например: подготовить диплом"
             required
           />
+
+          <div className="field-counter">
+            {form.title.length}/60
+          </div>
         </label>
 
         <label className="field">
@@ -924,16 +1478,68 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
         </label>
 
         <label className="field">
-          <span>Приоритет</span>
-          <select
-            value={form.priority}
-            onChange={(event) => updateField("priority", event.target.value)}
-          >
-            <option value="low">Низкий</option>
-            <option value="medium">Средний</option>
-            <option value="high">Высокий</option>
-          </select>
-        </label>
+        <span>Первый маленький шаг</span>
+
+        <input
+          value={form.micro_step}
+          maxLength={80}
+          onChange={(event) => updateField("micro_step", event.target.value)}
+          placeholder="Например: открыть документ и перечитать введение"
+        />
+
+        <div className="field-hint">
+          Помогает быстрее начать задачу, даже если она кажется большой.
+        </div>
+
+        <div className="field-counter">
+          {form.micro_step.length}/80
+        </div>
+      </label>
+
+        <div className="field">
+  <span>Приоритет</span>
+
+  <div className="priority-picker">
+    <button
+      type="button"
+      className={
+        form.priority === "low"
+          ? "priority-choice low active"
+          : "priority-choice low"
+      }
+      onClick={() => setForm({ ...form, priority: "low" })}
+      title="Низкий приоритет"
+    >
+      !
+    </button>
+
+    <button
+      type="button"
+      className={
+        form.priority === "medium"
+          ? "priority-choice medium active"
+          : "priority-choice medium"
+      }
+      onClick={() => setForm({ ...form, priority: "medium" })}
+      title="Средний приоритет"
+    >
+      !!
+    </button>
+
+    <button
+      type="button"
+      className={
+        form.priority === "high"
+          ? "priority-choice high active"
+          : "priority-choice high"
+      }
+      onClick={() => setForm({ ...form, priority: "high" })}
+      title="Высокий приоритет"
+    >
+      !!!
+    </button>
+  </div>
+</div>
 
         <label className="deadline-toggle">
           <input
@@ -1019,78 +1625,16 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
   );
 }
 
+
 function WorkoutModal({
   onClose,
   onSubmit,
+  muscleGroups,
   availableExercises,
+  compatibleGroups,
   isSaving,
 }) {
   const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
-
-  const muscleGroups = [
-    "Спина",
-    "Грудь",
-    "Ноги",
-    "Плечи",
-    "Пресс",
-    "Бицепс",
-    "Трицепс",
-    "Ягодицы",
-    "Икры",
-    "Кардио",
-  ];
-
-  const exerciseLibrary = [
-    { id: 1, name: "Подтягивания", muscle: "Спина" },
-    { id: 2, name: "Тяга верхнего блока", muscle: "Спина" },
-    { id: 3, name: "Тяга штанги в наклоне", muscle: "Спина" },
-    { id: 4, name: "Горизонтальная тяга", muscle: "Спина" },
-    { id: 5, name: "Гиперэкстензия", muscle: "Спина" },
-
-    { id: 6, name: "Жим лёжа", muscle: "Грудь" },
-    { id: 7, name: "Жим гантелей лёжа", muscle: "Грудь" },
-    { id: 8, name: "Разводка гантелей", muscle: "Грудь" },
-    { id: 9, name: "Отжимания на брусьях", muscle: "Грудь" },
-    { id: 10, name: "Кроссовер", muscle: "Грудь" },
-
-    { id: 11, name: "Приседания", muscle: "Ноги" },
-    { id: 12, name: "Жим ногами", muscle: "Ноги" },
-    { id: 13, name: "Выпады", muscle: "Ноги" },
-    { id: 14, name: "Румынская тяга", muscle: "Ноги" },
-    { id: 15, name: "Разгибание ног", muscle: "Ноги" },
-    { id: 16, name: "Сгибание ног", muscle: "Ноги" },
-
-    { id: 17, name: "Жим гантелей сидя", muscle: "Плечи" },
-    { id: 18, name: "Армейский жим", muscle: "Плечи" },
-    { id: 19, name: "Махи в стороны", muscle: "Плечи" },
-    { id: 20, name: "Тяга к подбородку", muscle: "Плечи" },
-    { id: 21, name: "Разведения в наклоне", muscle: "Плечи" },
-
-    { id: 22, name: "Скручивания", muscle: "Пресс" },
-    { id: 23, name: "Планка", muscle: "Пресс" },
-    { id: 24, name: "Подъём ног", muscle: "Пресс" },
-    { id: 25, name: "Велосипед", muscle: "Пресс" },
-    { id: 26, name: "Русские повороты", muscle: "Пресс" },
-
-    { id: 27, name: "Сгибание рук со штангой", muscle: "Бицепс" },
-    { id: 28, name: "Сгибание рук с гантелями", muscle: "Бицепс" },
-    { id: 29, name: "Молотковые сгибания", muscle: "Бицепс" },
-
-    { id: 30, name: "Французский жим", muscle: "Трицепс" },
-    { id: 31, name: "Разгибание рук на блоке", muscle: "Трицепс" },
-    { id: 32, name: "Жим узким хватом", muscle: "Трицепс" },
-
-    { id: 33, name: "Ягодичный мост", muscle: "Ягодицы" },
-    { id: 34, name: "Отведение ноги назад", muscle: "Ягодицы" },
-
-    { id: 35, name: "Подъём на носки стоя", muscle: "Икры" },
-    { id: 36, name: "Подъём на носки сидя", muscle: "Икры" },
-
-    { id: 37, name: "Бег", muscle: "Кардио" },
-    { id: 38, name: "Велотренажёр", muscle: "Кардио" },
-    { id: 39, name: "Эллипс", muscle: "Кардио" },
-    { id: 40, name: "Скакалка", muscle: "Кардио" },
-  ];
 
   const [title, setTitle] = useState("Тренировка");
   const [selectedMuscles, setSelectedMuscles] = useState([]);
@@ -1098,10 +1642,9 @@ function WorkoutModal({
   const [selectedDays, setSelectedDays] = useState([]);
   const [exerciseSearch, setExerciseSearch] = useState("");
 
-  const exercises =
-    availableExercises && availableExercises.length > 0
-      ? availableExercises
-      : exerciseLibrary;
+  const exercises = Array.isArray(availableExercises)
+  ? availableExercises
+  : [];
 
   const filteredExercises = exercises.filter((exercise) => {
   const name = String(exercise.name || "").toLowerCase();
@@ -1218,15 +1761,15 @@ function WorkoutModal({
             {muscleGroups.map((muscle) => (
               <button
                 type="button"
-                key={muscle}
+                key={muscle.id}
                 className={
-                  selectedMuscles.includes(muscle)
+                  selectedMuscles.includes(muscle.name)
                     ? "choice-chip active"
                     : "choice-chip"
                 }
-                onClick={() => toggleMuscle(muscle)}
+                onClick={() => toggleMuscle(muscle.name)}
               >
-                {muscle}
+                {muscle.name}
               </button>
             ))}
           </div>
@@ -1428,9 +1971,45 @@ function TasksPage({
   activeTaskGroupId,
   setActiveTaskGroupId,
   openGroupModal,
+  openFocusMode,
   deleteTaskGroup,
 }) {
   const regularTasks = tasks.filter((task) => task.category !== "Тренировка");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+const searchRef = useRef(null);
+const searchInputRef = useRef(null);
+
+useEffect(() => {
+  if (isSearchOpen) {
+    searchInputRef.current?.focus();
+  }
+}, [isSearchOpen]);
+
+useEffect(() => {
+  function handleClickOutside(event) {
+    if (!isSearchOpen) {
+      return;
+    }
+
+    if (searchRef.current && !searchRef.current.contains(event.target)) {
+      setIsSearchOpen(false);
+    }
+  }
+
+  function handleEscape(event) {
+    if (event.key === "Escape") {
+      setIsSearchOpen(false);
+    }
+  }
+
+  document.addEventListener("mousedown", handleClickOutside);
+  document.addEventListener("keydown", handleEscape);
+
+  return () => {
+    document.removeEventListener("mousedown", handleClickOutside);
+    document.removeEventListener("keydown", handleEscape);
+  };
+}, [isSearchOpen]);
 
 const completed = regularTasks.filter(
   (task) => task.status === "Выполнена"
@@ -1440,76 +2019,100 @@ const inProgress = regularTasks.filter(
   (task) => task.status === "В процессе"
 ).length;
 
-  const filters = ["Все", "Сегодня", "Выполненные"];
-
-  
-
-  
-
   return (
     
     <section>
     <PageHeader
-      title="Задачи"
-      subtitle="Планируйте дела, тренировки и контролируйте выполнение задач."
-      actions={
-        <div className="header-stats">
-          <MiniStat title="Всего" value={regularTasks.length} />
-          <MiniStat title="Выполнено" value={completed} />
-          <MiniStat title="В процессе" value={inProgress} />
-        </div>
+  title="Задачи"
+  subtitle="Планируйте дела, тренировки и контролируйте выполнение задач."
+  actions={
+    <div className="page-header-actions">
+
+    <div
+      ref={searchRef}
+      className={
+        isSearchOpen
+          ? "morph-search open"
+          : searchQuery
+            ? "morph-search has-value"
+            : "morph-search"
       }
-    />
+    >
+  <button
+    type="button"
+    className="morph-search-icon"
+    onClick={() => setIsSearchOpen(true)}
+    title="Поиск"
+    aria-label="Поиск"
+  >
+    <svg viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M16.5 16.5L21 21" />
+    </svg>
+  </button>
 
-      <div className="toolbar tasks-toolbar">
-  <div className="toolbar-top">
-    <input
-      className="search-input"
-      placeholder="Поиск по названию, категории, статусу..."
-      value={searchQuery}
-      onChange={(event) => setSearchQuery(event.target.value)}
-    />
-
-    <div className="filters">
-      {filters.map((filter) => (
-        <button
-          key={filter}
-          className={taskFilter === filter ? "filter active" : "filter"}
-          onClick={() => setTaskFilter(filter)}
-        >
-          {filter}
-        </button>
-      ))}
-    </div>
-  </div>
-
-  <TaskGroupTabs
-    groups={taskGroups}
-    activeGroupId={activeTaskGroupId}
-    setActiveGroupId={setActiveTaskGroupId}
-    openGroupModal={openGroupModal}
-    deleteTaskGroup={deleteTaskGroup}
+  <input
+    ref={searchInputRef}
+    className="morph-search-input"
+    placeholder="Поиск"
+    value={searchQuery}
+    onChange={(event) => setSearchQuery(event.target.value)}
   />
+
+  {searchQuery && (
+    <button
+      type="button"
+      className="morph-search-clear"
+      onClick={() => setSearchQuery("")}
+      title="Очистить поиск"
+    >
+      ×
+    </button>
+  )}
 </div>
 
+      <HeaderProgressBar
+        total={filteredTasks.length}
+        completed={filteredTasks.filter((task) => task.status === "Выполнена").length}
+      />
+    </div>
+  }
+/>
+
+<TaskGroupTabs
+  groups={taskGroups}
+  activeGroupId={activeTaskGroupId}
+  setActiveGroupId={setActiveTaskGroupId}
+  openGroupModal={openGroupModal}
+  deleteTaskGroup={deleteTaskGroup}
+/>
+
+
       {filteredTasks.length === 0 ? (
-        <div className="empty-state">
-          <h3>Задачи не найдены</h3>
-          <p>Попробуйте изменить поиск или создать новую задачу.</p>
-        </div>
-      ) : (
-        <div className="tasks-grid">
-          {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              markTaskDone={markTaskDone}
-              markWorkoutExerciseDone={markWorkoutExerciseDone}
-              deleteTask={deleteTask}
-            />
-          ))}
-        </div>
-      )}
+  <button
+    type="button"
+    className="empty-state empty-state-clickable"
+    onClick={openTaskModal}
+    title="Создать задачу"
+  >
+    <span className="empty-state-plus">+</span>
+    <h3>Задачи не найдены</h3>
+    <p>Нажмите сюда, чтобы создать новую задачу.</p>
+  </button>
+) : (
+  <div className="tasks-grid">
+    {filteredTasks.map((task) => (
+      <TaskCard
+        key={task.id}
+        task={task}
+        markTaskDone={markTaskDone}
+        markWorkoutExerciseDone={markWorkoutExerciseDone}
+        deleteTask={deleteTask}
+        openFocusMode={openFocusMode}
+      />
+    ))}
+  </div>
+)}
 
       <button
         className="fab-add-btn"
@@ -1562,17 +2165,13 @@ function TaskGroupTabs({
   }}
 >
   <button
-    type="button"
-    className="task-group-name-btn"
-    onClick={() => setActiveGroupId(group.id)}
-    title={group.name}
-  >
-    <span
-      className="task-group-color-dot"
-      style={{ backgroundColor: group.color || "#E6F8FA" }}
-    />
-    {group.name}
-  </button>
+  type="button"
+  className="task-group-name-btn"
+  onClick={() => setActiveGroupId(group.id)}
+  title={group.name}
+>
+  {group.name}
+</button>
 
   <button
     type="button"
@@ -1593,7 +2192,7 @@ function TaskGroupTabs({
         className="task-group-add"
         onClick={openGroupModal}
       >
-        + Добавить группу
+        + Группа
       </button>
     </div>
   );
@@ -1603,15 +2202,24 @@ function TaskGroupModal({ onClose, onSubmit, isSaving }) {
   const [name, setName] = useState("");
   const [selectedColor, setSelectedColor] = useState(groupColors[5]);
 
+  const maxGroupNameLength = 20;
+
   function handleSubmit(event) {
     event.preventDefault();
 
-    if (!name.trim() || isSaving) {
+    const trimmedName = name.trim();
+
+    if (!trimmedName || isSaving) {
+      return;
+    }
+
+    if (trimmedName.length > maxGroupNameLength) {
+      alert(`Название группы не должно быть длиннее ${maxGroupNameLength} символов`);
       return;
     }
 
     onSubmit({
-      name: name.trim(),
+      name: trimmedName,
       color: selectedColor,
     });
   }
@@ -1629,13 +2237,17 @@ function TaskGroupModal({ onClose, onSubmit, isSaving }) {
 
         <label className="field">
           <span>Название группы</span>
+
           <input
             value={name}
+            maxLength={maxGroupNameLength}
             onChange={(event) => setName(event.target.value)}
             placeholder="Например: Учёба"
-            required
-            autoFocus
           />
+
+          <div className="field-counter">
+            {name.length}/{maxGroupNameLength}
+          </div>
         </label>
 
         <div className="group-color-field">
@@ -1673,138 +2285,188 @@ function TaskCard({
   markTaskDone,
   markWorkoutExerciseDone,
   deleteTask,
+  openFocusMode,
 }) {
-  const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const isCompleted = task.status === "Выполнена";
-  const isWorkout = task.category === "Тренировка";
   const hasDescription = Boolean(task.description && task.description.trim());
+  const hasMicroStep = Boolean(task.microStep && task.microStep.trim());
+
+  function handleCardClick() {
+    setIsExpanded((current) => !current);
+  }
+
+  function stopClick(event) {
+    event.stopPropagation();
+  }
+
   return (
     <article
-      className={isCompleted ? "task-card completed" : "task-card"}
+      className={
+        isCompleted
+          ? isExpanded
+            ? "task-card mini-task-card completed expanded"
+            : "task-card mini-task-card completed"
+          : isExpanded
+            ? "task-card mini-task-card expanded"
+            : "task-card mini-task-card"
+      }
       style={{
         "--task-group-color": task.groupColor || "rgba(255, 255, 255, 0.64)",
       }}
+      onClick={handleCardClick}
     >
-      <div className="task-top">
-        <div>
-          <div className="task-title-row">
-            <span
-              className={isCompleted ? "task-check done" : "task-check"}
-              onClick={() => markTaskDone(task.id)}
-              title="Отметить как выполнено"
-            >
-              {isCompleted ? "✓" : ""}
-            </span>
+      <div className="mini-task-row">
+        <button
+          type="button"
+          className={isCompleted ? "task-check done" : "task-check"}
+          onClick={(event) => {
+            stopClick(event);
+            markTaskDone(task.id);
+          }}
+          title="Отметить как выполнено"
+        >
+          {isCompleted ? "✓" : ""}
+        </button>
 
+        <div className="mini-task-main">
+          <div className="mini-task-title-line">
             <h3>{task.title}</h3>
             <PriorityIndicator priority={task.priority} />
           </div>
 
-          {hasDescription && (
-            <button
-              type="button"
+          <div className="mini-task-meta">
+            <span
               className={
-                isDescriptionOpen
-                  ? "task-description expanded"
-                  : "task-description"
-              }
-              onClick={() => setIsDescriptionOpen((current) => !current)}
-              title={
-                isDescriptionOpen
-                  ? "Свернуть описание"
-                  : "Развернуть описание"
+                task.date === "Без срока" ? "task-date no-date" : "task-date"
               }
             >
-              {task.description}
-            </button>
-          )}
-        </div>
+              ◷ {task.date}
+            </span>
 
-        <button
-          className="dots delete-btn"
-          onClick={() => deleteTask(task.id)}
-          title="Удалить задачу"
-        >
-          ×
-        </button>
-      </div>
+            {task.groupName && (
+              <span
+                className="task-group-label mini-task-group"
+                style={{
+                  "--task-group-color": task.groupColor || "#E6F8FA",
+                }}
+              >
+                {task.groupName}
+              </span>
+            )}
 
-      <div className="badges">
-        <Badge type={getStatusType(task.status)}>{task.status}</Badge>
-      </div>
-
-      {task.groupName && (
-        <div className="task-group-label">
-          <span style={{ backgroundColor: task.groupColor || "#E6F8FA" }} />
-          {task.groupName}
-        </div>
-      )}
-
-      {task.exercises && (
-        <div className="exercise-box workout-subtasks">
-          <strong>Упражнения</strong>
-
-          <div className="workout-subtask-list">
-            {task.exercises.map((exercise) => {
-              const exerciseName =
-                typeof exercise === "string" ? exercise : exercise.name;
-
-              const isExerciseCompleted =
-                typeof exercise === "string" ? false : exercise.is_completed;
-
-              return (
-                <div
-                  key={exercise.workout_exercise_id || exercise.id || exerciseName}
-                  className={
-                    isExerciseCompleted
-                      ? "workout-subtask completed"
-                      : "workout-subtask"
-                  }
-                >
-                  <button
-                    type="button"
-                    className={
-                      isExerciseCompleted
-                        ? "workout-subtask-check done"
-                        : "workout-subtask-check"
-                    }
-                    onClick={() => {
-                      if (!exercise.workout_exercise_id || isExerciseCompleted) {
-                        return;
-                      }
-
-                      markWorkoutExerciseDone(exercise.workout_exercise_id);
-                    }}
-                    disabled={isExerciseCompleted || !exercise.workout_exercise_id}
-                    title={
-                      isExerciseCompleted
-                        ? "Упражнение выполнено"
-                        : "Отметить упражнение выполненным"
-                    }
-                  >
-                    {isExerciseCompleted ? "✓" : ""}
-                  </button>
-
-                  <p>{exerciseName}</p>
-                </div>
-              );
-            })}
+            {isCompleted && (
+              <span className="completed-label mini-completed-label">
+                Выполнено
+              </span>
+            )}
           </div>
         </div>
-)}
 
-      <div className="task-footer">
-        <span
-          className={task.date === "Без срока" ? "task-date no-date" : "task-date"}
-        >
-          ◷ {task.date}
-        </span>
+        <div className="task-actions" onClick={stopClick}>
+          <button
+            type="button"
+            className="task-focus-btn"
+            title="Режим концентрации"
+            onClick={() => openFocusMode(task)}
+          >
+            ◎
+          </button>
 
-        {isWorkout && (
-          <span className="workout-repeat-label">Повторяющаяся тренировка</span>
-        )}
+          <button
+            type="button"
+            className="dots delete-btn"
+            onClick={() => deleteTask(task.id)}
+            title="Удалить задачу"
+          >
+            ×
+          </button>
+        </div>
       </div>
+
+      {isExpanded && (
+        <div className="mini-task-expanded">
+          {hasMicroStep && (
+            <div className="micro-step-box">
+              <span>Микро-шаг</span>
+              <p>{task.microStep}</p>
+            </div>
+          )}
+
+          {hasDescription ? (
+            <p className="mini-task-description">{task.description}</p>
+          ) : (
+            <p className="mini-task-description empty-description">
+              Описание не добавлено
+            </p>
+          )}
+
+          {task.exercises && (
+            <div className="exercise-box workout-subtasks" onClick={stopClick}>
+              <strong>Упражнения</strong>
+
+              <div className="workout-subtask-list">
+                {task.exercises.map((exercise) => {
+                  const exerciseName =
+                    typeof exercise === "string" ? exercise : exercise.name;
+
+                  const isExerciseCompleted =
+                    typeof exercise === "string"
+                      ? false
+                      : exercise.is_completed;
+
+                  return (
+                    <div
+                      key={
+                        exercise.workout_exercise_id ||
+                        exercise.id ||
+                        exerciseName
+                      }
+                      className={
+                        isExerciseCompleted
+                          ? "workout-subtask completed"
+                          : "workout-subtask"
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={
+                          isExerciseCompleted
+                            ? "workout-subtask-check done"
+                            : "workout-subtask-check"
+                        }
+                        onClick={() => {
+                          if (
+                            !exercise.workout_exercise_id ||
+                            isExerciseCompleted
+                          ) {
+                            return;
+                          }
+
+                          markWorkoutExerciseDone(exercise.workout_exercise_id);
+                        }}
+                        disabled={
+                          isExerciseCompleted || !exercise.workout_exercise_id
+                        }
+                        title={
+                          isExerciseCompleted
+                            ? "Упражнение выполнено"
+                            : "Отметить упражнение выполненным"
+                        }
+                      >
+                        {isExerciseCompleted ? "✓" : ""}
+                      </button>
+
+                      <p>{exerciseName}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </article>
   );
 }
@@ -2216,7 +2878,7 @@ function CalendarTaskItem({ task, deleteTask, markTaskDone }) {
   );
 }
 
-function WorkoutsPage({ tasks, openWorkoutModal }) {
+function WorkoutsPage({ tasks, openWorkoutModal, markWorkoutExerciseDone }) {
   const workouts = tasks.filter((task) => task.category === "Тренировка");
 
   return (
@@ -2239,7 +2901,11 @@ function WorkoutsPage({ tasks, openWorkoutModal }) {
       ) : (
         <div className="tasks-grid">
           {workouts.map((workout) => (
-            <WorkoutCard key={workout.id} workout={workout} />
+            <WorkoutCard
+              key={workout.id}
+              workout={workout}
+              markWorkoutExerciseDone={markWorkoutExerciseDone}
+            />
           ))}
         </div>
       )}
@@ -2247,7 +2913,7 @@ function WorkoutsPage({ tasks, openWorkoutModal }) {
   );
 }
 
-function WorkoutCard({ workout }) {
+function WorkoutCard({ workout, markWorkoutExerciseDone }) {
   return (
     <article className="task-card workout-card">
       <div className="task-top">
@@ -2278,19 +2944,53 @@ function WorkoutCard({ workout }) {
           <strong>Упражнения</strong>
 
           <div className="workout-subtask-list">
-            {workout.exercises.map((exercise) => (
-              <div
-                key={exercise.workout_exercise_id || exercise.id || exercise.name}
-                className={
-                  exercise.is_completed
-                    ? "workout-subtask completed"
-                    : "workout-subtask"
+            {workout.exercises && workout.exercises.length > 0 && (
+  <div className="exercise-box workout-subtasks">
+    <strong>Упражнения</strong>
+
+    <div className="workout-subtask-list">
+      {workout.exercises.map((exercise) => {
+        const exerciseName =
+          typeof exercise === "string" ? exercise : exercise.name;
+
+        const isExerciseCompleted =
+          typeof exercise === "string" ? false : exercise.is_completed;
+
+        return (
+          <div
+            key={exercise.workout_exercise_id || exercise.id || exerciseName}
+            className={
+              isExerciseCompleted
+                ? "workout-subtask completed"
+                : "workout-subtask"
+            }
+          >
+            <button
+              type="button"
+              className={
+                isExerciseCompleted
+                  ? "workout-subtask-check done"
+                  : "workout-subtask-check"
+              }
+              onClick={() => {
+                if (!exercise.workout_exercise_id || isExerciseCompleted) {
+                  return;
                 }
-              >
-                <span>{exercise.is_completed ? "✓" : "□"}</span>
-                <p>{exercise.name || exercise}</p>
-              </div>
-            ))}
+
+                markWorkoutExerciseDone(exercise.workout_exercise_id);
+              }}
+              disabled={isExerciseCompleted || !exercise.workout_exercise_id}
+            >
+              {isExerciseCompleted ? "✓" : ""}
+            </button>
+
+            <p>{exerciseName}</p>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
           </div>
         </div>
       )}
@@ -2329,30 +3029,61 @@ function StatsPage({ tasks }) {
   );
 }
 
-function ProfilePage() {
+function ProfilePage({ currentUser, subscription, logout }) {
+  const isPremium = subscription?.code === "premium";
+  const isGuest = currentUser?.is_guest;
+
   return (
     <section>
       <PageHeader
         title="Профиль"
-        subtitle="Данные пользователя и настройки подписки."
+        subtitle="Информация об аккаунте и подписке."
       />
 
       <div className="profile-card">
         <div className="avatar">👤</div>
 
         <div>
-          <h3>Пользователь</h3>
-          <p>Бесплатный тариф</p>
+          <h3>{currentUser?.username || "Пользователь"}</h3>
+          <p>{currentUser?.email || "Гостевой режим"}</p>
+
+          <div className="badges">
+            <Badge type={isPremium ? "purple" : isGuest ? "gray" : "blue"}>
+              {subscription?.name || "Free"}
+            </Badge>
+          </div>
         </div>
       </div>
 
-      <div className="premium-card light">
-        <h3>Перейти на Premium</h3>
-        <p>
-          Откройте неограниченные задачи, расширенную статистику и готовые
-          программы тренировок.
-        </p>
-      </div>
+      {isGuest ? (
+        <div className="premium-card light">
+          <h3>Гостевой режим</h3>
+          <p>
+            В гостевом режиме задачи и тренировки не сохраняются после выхода.
+            Зарегистрируйтесь, чтобы хранить данные в личном аккаунте.
+          </p>
+        </div>
+      ) : isPremium ? (
+        <div className="premium-card light">
+          <h3>Premium активен</h3>
+          <p>
+            Вам доступны неограниченные задачи и тренировки, расширенная
+            статистика, история прогресса и расширенная библиотека упражнений.
+          </p>
+        </div>
+      ) : (
+        <div className="premium-card light">
+          <h3>Перейти на Premium</h3>
+          <p>
+            Premium откроет неограниченные задачи, расширенную статистику,
+            готовые программы тренировок и расширенную библиотеку упражнений.
+          </p>
+        </div>
+      )}
+
+      <button className="danger-btn" onClick={logout}>
+        Выйти
+      </button>
     </section>
   );
 }
@@ -2383,11 +3114,61 @@ function StatCard({ title, value, icon }) {
   );
 }
 
-function MiniStat({ title, value }) {
+function HeaderProgressBar({ total, completed }) {
+  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+
   return (
-    <div className="mini-stat">
-      <span>{title}</span>
-      <strong>{value}</strong>
+    <div className="header-progress-bar-card" title="Прогресс задач">
+      <div className="header-progress-bar-top">
+        <span>Прогресс</span>
+        <strong>
+          {completed}/{total}
+        </strong>
+      </div>
+
+      <div className="header-progress-track">
+        <div
+          className="header-progress-fill"
+          style={{
+            width: `${percent}%`,
+          }}
+        />
+      </div>
+
+      <span className="header-progress-percent">{percent}%</span>
+    </div>
+  );
+}
+
+function DayProgressRing({ total, completed }) {
+  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+  const angle = Math.round((percent / 100) * 360);
+
+  return (
+    <div className="day-progress-card">
+      <div
+        className="day-progress-ring"
+        style={{
+          "--progress-angle": `${angle}deg`,
+        }}
+      >
+        <div className="day-progress-inner">
+          <strong>{percent}%</strong>
+          <span>готово</span>
+        </div>
+      </div>
+
+      <div className="day-progress-info">
+        <span>Прогресс дня</span>
+        <h3>
+          {completed} / {total}
+        </h3>
+        <p>
+          {total === 0
+            ? "Создайте первую задачу на день"
+            : "Выполнено задач"}
+        </p>
+      </div>
     </div>
   );
 }
@@ -2488,6 +3269,7 @@ function formatTaskFromApi(task) {
     id: task.id,
     title: task.title,
     description: task.description || "",
+    microStep: task.micro_step || "",
     category: task.category || "Личное",
     priority: formatPriority(task.priority),
     status: formatStatus(task.status),

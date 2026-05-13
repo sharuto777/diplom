@@ -3,10 +3,77 @@ const cors = require("cors");
 const { Pool } = require("pg");
 require("dotenv").config();
 
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({
+      error: "Пользователь не авторизован",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Токен не передан",
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    req.user = decoded;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      error: "Недействительный токен",
+    });
+  }
+}
+
+async function getUserSubscription(userId) {
+  const result = await pool.query(
+    `
+    SELECT
+      sp.id,
+      sp.name,
+      sp.code,
+      sp.price_month,
+      sp.price_year,
+      sp.max_tasks,
+      sp.max_workouts,
+      sp.has_extended_stats,
+      sp.has_extended_exercises,
+      sp.has_ready_programs,
+      sp.has_progress_history,
+      sp.has_export,
+      sp.has_no_ads,
+      us.status,
+      us.started_at,
+      us.expires_at
+    FROM user_subscriptions us
+    JOIN subscription_plans sp ON sp.id = us.plan_id
+    WHERE us.user_id = $1
+      AND us.status = 'active'
+      AND (us.expires_at IS NULL OR us.expires_at > CURRENT_TIMESTAMP)
+    ORDER BY us.started_at DESC
+    LIMIT 1
+    `,
+    [userId]
+  );
+
+  return result.rows[0] || null;
+}
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -15,6 +82,256 @@ const pool = new Pool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
 });
+
+app.post("/api/auth/register", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { username, email, password } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({
+        error: "Заполните логин, email и пароль",
+      });
+    }
+
+    if (username.trim().length < 3) {
+      return res.status(400).json({
+        error: "Логин должен содержать минимум 3 символа",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        error: "Пароль должен содержать минимум 6 символов",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    const existingUser = await client.query(
+      `
+      SELECT id
+      FROM users
+      WHERE email = $1 OR username = $2
+      `,
+      [email.trim().toLowerCase(), username.trim()]
+    );
+
+    if (existingUser.rows.length > 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(409).json({
+        error: "Пользователь с таким email или логином уже существует",
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const userResult = await client.query(
+      `
+      INSERT INTO users (
+        username,
+        email,
+        password_hash,
+        role,
+        is_guest
+      )
+      VALUES ($1, $2, $3, 'user', false)
+      RETURNING id, username, email, role, is_guest, avatar_url, created_at
+      `,
+      [username.trim(), email.trim().toLowerCase(), passwordHash]
+    );
+
+    const user = userResult.rows[0];
+
+    const freePlanResult = await client.query(
+      `
+      SELECT id
+      FROM subscription_plans
+      WHERE code = 'free'
+      LIMIT 1
+      `
+    );
+
+    if (freePlanResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(500).json({
+        error: "В базе данных не найден тариф Free",
+      });
+    }
+
+    const freePlanId = freePlanResult.rows[0].id;
+
+    await client.query(
+      `
+      INSERT INTO user_subscriptions (
+        user_id,
+        plan_id,
+        status,
+        started_at,
+        expires_at
+      )
+      VALUES ($1, $2, 'active', CURRENT_TIMESTAMP, NULL)
+      `,
+      [user.id, freePlanId]
+    );
+
+    await client.query("COMMIT");
+
+    const subscription = await getUserSubscription(user.id);
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        is_guest: user.is_guest,
+        subscription: subscription?.code || "free",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.status(201).json({
+      token,
+      user,
+      subscription,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    console.error("Ошибка регистрации:", error);
+
+    res.status(500).json({
+      error: "Ошибка регистрации пользователя",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Введите email и пароль",
+      });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        username,
+        email,
+        password_hash,
+        role,
+        is_guest,
+        avatar_url,
+        created_at
+      FROM users
+      WHERE email = $1
+      LIMIT 1
+      `,
+      [email.trim().toLowerCase()]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        error: "Неверный email или пароль",
+      });
+    }
+
+    const user = result.rows[0];
+
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user.password_hash
+    );
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        error: "Неверный email или пароль",
+      });
+    }
+
+    delete user.password_hash;
+
+    const subscription = await getUserSubscription(user.id);
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        is_guest: user.is_guest,
+        subscription: subscription?.code || "free",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      token,
+      user,
+      subscription,
+    });
+  } catch (error) {
+    console.error("Ошибка входа:", error);
+
+    res.status(500).json({
+      error: "Ошибка входа",
+    });
+  }
+});
+
+app.get("/api/auth/me", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        username,
+        email,
+        role,
+        is_guest,
+        avatar_url,
+        created_at
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Пользователь не найден",
+      });
+    }
+
+    const user = result.rows[0];
+    const subscription = await getUserSubscription(user.id);
+
+    res.json({
+      user,
+      subscription,
+    });
+  } catch (error) {
+    console.error("Ошибка получения пользователя:", error);
+
+    res.status(500).json({
+      error: "Ошибка получения данных пользователя",
+    });
+  }
+});
+
 
 app.get("/", (req, res) => {
   res.send("FitPlanner backend работает. Используй /api/health, /api/tasks");
@@ -37,17 +354,21 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-app.get("/api/tasks", async (req, res) => {
+app.get("/api/tasks", authMiddleware, async (req, res) => {
   try {
+    const userId = req.user.id;
+
     const result = await pool.query(
       `
       SELECT
         t.id,
         t.title,
         t.description,
+        t.micro_step,
         t.priority,
         t.status,
         t.start_datetime,
+        t.end_datetime,
         t.group_id,
         tg.name AS group_name,
         tg.color AS group_color,
@@ -73,16 +394,16 @@ app.get("/api/tasks", async (req, res) => {
       LEFT JOIN muscle_groups mg ON mg.id = w.main_muscle_group_id
       LEFT JOIN workout_exercises we ON we.workout_id = w.id
       LEFT JOIN exercises e ON e.id = we.exercise_id
-      WHERE t.user_id = (
-        SELECT id FROM users WHERE username = 'demo_user'
-      )
+      WHERE t.user_id = $1
       GROUP BY
         t.id,
         t.title,
         t.description,
+        t.micro_step,
         t.priority,
         t.status,
         t.start_datetime,
+        t.end_datetime,
         t.group_id,
         tg.name,
         tg.color,
@@ -91,7 +412,8 @@ app.get("/api/tasks", async (req, res) => {
         w.repeat_days,
         mg.name
       ORDER BY t.created_at DESC
-      `
+      `,
+      [userId]
     );
 
     res.json(result.rows);
@@ -105,36 +427,9 @@ app.get("/api/tasks", async (req, res) => {
   }
 });
 
-app.get("/api/task-groups", async (req, res) => {
+app.post("/api/task-groups", authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query(
-      `
-      SELECT
-        id,
-        name,
-        color,
-        created_at
-      FROM task_groups
-      WHERE user_id = (
-        SELECT id FROM users WHERE username = 'demo_user'
-      )
-      ORDER BY created_at ASC
-      `
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Ошибка загрузки групп задач:", error);
-
-    res.status(500).json({
-      error: "Ошибка загрузки групп задач",
-      message: error.message,
-    });
-  }
-});
-
-app.post("/api/task-groups", async (req, res) => {
-  try {
+    const userId = req.user.id;
     const { name, color } = req.body;
 
     if (!name || !name.trim()) {
@@ -150,15 +445,10 @@ app.post("/api/task-groups", async (req, res) => {
         name,
         color
       )
-      SELECT
-        u.id,
-        $1,
-        $2
-      FROM users u
-      WHERE u.username = 'demo_user'
+      VALUES ($1, $2, $3)
       RETURNING id, name, color, created_at
       `,
-      [name.trim(), color || "#E6F8FA"]
+      [userId, name.trim(), color || "#E6F8FA"]
     );
 
     res.status(201).json(result.rows[0]);
@@ -178,11 +468,23 @@ app.post("/api/task-groups", async (req, res) => {
   }
 });
 
-app.post("/api/tasks", async (req, res) => {
+
+app.post("/api/tasks", authMiddleware, async (req, res) => {
   try {
+    const userId = req.user.id;
+
+    const limitCheck = await checkTaskLimit(userId);
+
+    if (!limitCheck.allowed) {
+      return res.status(403).json({
+        error: `Достигнут лимит бесплатного тарифа: ${limitCheck.limit} задач. Для снятия ограничения подключите Premium.`,
+      });
+    }
+
     const {
       title,
       description,
+      micro_step,
       category,
       priority,
       start_datetime,
@@ -191,9 +493,44 @@ app.post("/api/tasks", async (req, res) => {
     } = req.body;
 
     if (!title || !title.trim()) {
+      return res.status(400).json({ error: "Название задачи обязательно" });
+    }
+
+    const trimmedTitle = title.trim();
+
+    if (trimmedTitle.length > 60) {
       return res.status(400).json({
-        message: "Название задачи обязательно",
+        error: "Название задачи не должно быть длиннее 60 символов",
       });
+    }
+
+    const categoryName = category || "Личное";
+
+    const categoryResult = await pool.query(
+      `
+      SELECT id
+      FROM task_categories
+      WHERE name = $1
+      LIMIT 1
+      `,
+      [categoryName]
+    );
+
+    let categoryId;
+
+    if (categoryResult.rows.length > 0) {
+      categoryId = categoryResult.rows[0].id;
+    } else {
+      const newCategory = await pool.query(
+        `
+        INSERT INTO task_categories (name)
+        VALUES ($1)
+        RETURNING id
+        `,
+        [categoryName]
+      );
+
+      categoryId = newCategory.rows[0].id;
     }
 
     const result = await pool.query(
@@ -204,89 +541,44 @@ app.post("/api/tasks", async (req, res) => {
         group_id,
         title,
         description,
-        task_type,
-        status,
+        micro_step,
         priority,
+        status,
         start_datetime,
         end_datetime
       )
-      SELECT
-        u.id,
-        c.id,
-        $6,
-        $1,
-        $2,
-        'regular'::task_type,
-        'new'::task_status,
-        $3::task_priority,
-        $4,
-        $5
-      FROM users u
-      LEFT JOIN task_categories c ON c.name = $7
-      WHERE u.username = 'demo_user'
-      RETURNING *;
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', $8, $9)
+      RETURNING *
       `,
       [
-        title.trim(),
-        description || null,
+        userId,
+        categoryId,
+        group_id || null,
+        trimmedTitle,
+        description || "",
+        micro_step || "",
         priority || "medium",
         start_datetime || null,
         end_datetime || null,
-        group_id || null,
-        category || "Личное",
       ]
     );
 
-    const task = result.rows[0];
-
-    if (task.start_datetime) {
-      await pool.query(
-        `
-        INSERT INTO calendar_events (
-          user_id,
-          task_id,
-          title,
-          description,
-          start_datetime,
-          end_datetime,
-          color
-        )
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          '#3b82f6'
-        );
-        `,
-        [
-          task.user_id,
-          task.id,
-          task.title,
-          task.description,
-          task.start_datetime,
-          task.end_datetime,
-        ]
-      );
-    }
-
-    res.status(201).json(task);
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Ошибка создания задачи:", error);
-
     res.status(500).json({
-      message: "Ошибка при создании задачи",
-      error: error.message,
+      error: "Ошибка создания задачи",
+      message: error.message,
     });
   }
 });
 
-app.post("/api/workouts", async (req, res) => {
+app.post("/api/workouts", authMiddleware, async (req, res) => {
   const client = await pool.connect();
 
   try {
+    const userId = req.user.id;
+
     const {
       title,
       description,
@@ -296,21 +588,40 @@ app.post("/api/workouts", async (req, res) => {
       exercises,
     } = req.body;
 
+    if (!title || !title.trim()) {
+      return res.status(400).json({
+        error: "Название тренировки обязательно",
+      });
+    }
+
     await client.query("BEGIN");
 
-    const userResult = await client.query(
-      "SELECT id FROM users WHERE username = $1",
-      ["demo_user"]
-    );
-
-    const userId = userResult.rows[0].id;
-
-    const categoryResult = await client.query(
-      "SELECT id FROM task_categories WHERE name = $1",
+    let categoryResult = await client.query(
+      `
+      SELECT id
+      FROM task_categories
+      WHERE name = $1
+      LIMIT 1
+      `,
       ["Тренировка"]
     );
 
-    const categoryId = categoryResult.rows[0].id;
+    let categoryId;
+
+    if (categoryResult.rows.length > 0) {
+      categoryId = categoryResult.rows[0].id;
+    } else {
+      const newCategory = await client.query(
+        `
+        INSERT INTO task_categories (name)
+        VALUES ($1)
+        RETURNING id
+        `,
+        ["Тренировка"]
+      );
+
+      categoryId = newCategory.rows[0].id;
+    }
 
     const taskResult = await client.query(
       `
@@ -328,7 +639,7 @@ app.post("/api/workouts", async (req, res) => {
       [
         userId,
         categoryId,
-        title,
+        title.trim(),
         description || "",
         priority || "medium",
       ]
@@ -401,7 +712,7 @@ app.post("/api/workouts", async (req, res) => {
 
     await client.query("COMMIT");
 
-    res.json({
+    res.status(201).json({
       success: true,
       task_id: taskId,
       workout_id: workoutId,
@@ -413,14 +724,16 @@ app.post("/api/workouts", async (req, res) => {
 
     res.status(500).json({
       error: "Ошибка создания тренировки",
+      message: error.message,
     });
   } finally {
     client.release();
   }
 });
 
-app.patch("/api/tasks/:id/complete", async (req, res) => {
+app.patch("/api/tasks/:id/complete", authMiddleware, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
 
     const result = await pool.query(
@@ -431,55 +744,101 @@ app.patch("/api/tasks/:id/complete", async (req, res) => {
         ELSE 'completed'::task_status
       END
       WHERE id = $1
+        AND user_id = $2
       RETURNING *
       `,
-      [id]
+      [id, userId]
     );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Задача не найдена",
+      });
+    }
 
     res.json(result.rows[0]);
   } catch (error) {
     console.error("Ошибка обновления задачи:", error);
-    res.status(500).json({ error: "Ошибка обновления задачи" });
-  }
-});
-
-app.delete("/api/tasks", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      DELETE FROM tasks
-      WHERE user_id = (
-        SELECT id
-        FROM users
-        WHERE username = 'demo_user'
-      )
-      RETURNING *;
-    `);
-
-    res.json({
-      message: "Все задачи удалены",
-      deletedCount: result.rowCount,
-    });
-  } catch (error) {
-    console.error("Ошибка удаления всех задач:", error);
 
     res.status(500).json({
-      message: "Ошибка при удалении всех задач",
-      error: error.message,
+      error: "Ошибка обновления задачи",
+      message: error.message,
     });
   }
 });
 
-app.delete("/api/tasks/:id", async (req, res) => {
+async function requirePremium(req, res, next) {
   try {
+    const subscription = await getUserSubscription(req.user.id);
+
+    if (!subscription || subscription.code !== "premium") {
+      return res.status(403).json({
+        error: "Эта возможность доступна только пользователям Premium",
+      });
+    }
+
+    req.subscription = subscription;
+
+    next();
+  } catch (error) {
+    console.error("Ошибка проверки Premium:", error);
+
+    res.status(500).json({
+      error: "Ошибка проверки подписки",
+    });
+  }
+}
+
+app.get("/api/statistics/extended", authMiddleware, requirePremium, async (req, res) => {
+  res.json({
+    message: "Расширенная статистика Premium",
+  });
+});
+
+async function checkTaskLimit(userId) {
+  const subscription = await getUserSubscription(userId);
+
+  if (!subscription || subscription.max_tasks === null) {
+    return {
+      allowed: true,
+      subscription,
+    };
+  }
+
+  const result = await pool.query(
+    `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE user_id = $1
+      AND status != 'completed'
+    `,
+    [userId]
+  );
+
+  const count = result.rows[0].count;
+
+  return {
+    allowed: count < subscription.max_tasks,
+    current: count,
+    limit: subscription.max_tasks,
+    subscription,
+  };
+}
+
+
+app.delete("/api/tasks/:id", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
     const { id } = req.params;
 
     const result = await pool.query(
       `
       DELETE FROM tasks
       WHERE id = $1
-      RETURNING *;
+        AND user_id = $2
+      RETURNING *
       `,
-      [id]
+      [id, userId]
     );
 
     if (result.rows.length === 0) {
@@ -504,17 +863,20 @@ app.delete("/api/tasks/:id", async (req, res) => {
 
 app.get("/api/muscle-groups", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT id, name, description
+    const result = await pool.query(
+      `
+      SELECT id, name
       FROM muscle_groups
-      ORDER BY name;
-    `);
+      ORDER BY name
+      `
+    );
 
     res.json(result.rows);
   } catch (error) {
+    console.error("Ошибка загрузки групп мышц:", error);
+
     res.status(500).json({
-      message: "Ошибка при получении групп мышц",
-      error: error.message,
+      error: "Ошибка загрузки групп мышц",
     });
   }
 });
@@ -534,6 +896,7 @@ app.get("/api/exercises", async (req, res) => {
           e.description,
           e.difficulty,
           e.equipment,
+          e.is_premium,
           mg.name AS muscle
         FROM exercises e
         JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id
@@ -552,6 +915,7 @@ app.get("/api/exercises", async (req, res) => {
           e.description,
           e.difficulty,
           e.equipment,
+          e.is_premium,
           mg.name AS muscle
         FROM exercises e
         LEFT JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id
@@ -577,28 +941,28 @@ app.get("/api/muscle-combinations", async (req, res) => {
 
     if (!muscle) {
       return res.status(400).json({
-        message: "Не указана группа мышц",
+        error: "Не указана группа мышц",
       });
     }
 
     const result = await pool.query(
       `
-      SELECT
-        recommended.name AS recommended_muscle_group
+      SELECT recommended.name AS recommended_muscle_group
       FROM muscle_group_combinations mgc
       JOIN muscle_groups main ON main.id = mgc.main_muscle_group_id
       JOIN muscle_groups recommended ON recommended.id = mgc.recommended_muscle_group_id
       WHERE main.name = $1
-      ORDER BY recommended.name;
+      ORDER BY recommended.name
       `,
       [muscle]
     );
 
     res.json(result.rows);
   } catch (error) {
+    console.error("Ошибка загрузки совместимых групп:", error);
+
     res.status(500).json({
-      message: "Ошибка при получении совместимых групп мышц",
-      error: error.message,
+      error: "Ошибка загрузки совместимых групп",
     });
   }
 });
@@ -626,90 +990,21 @@ app.get("/api/calendar-events", async (req, res) => {
   }
 });
 
-app.get("/api/task-groups", async (req, res) => {
+
+
+app.delete("/api/task-groups/:id", authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query(
-      `
-      SELECT
-        id,
-        name,
-        created_at
-      FROM task_groups
-      WHERE user_id = (
-        SELECT id FROM users WHERE username = 'demo_user'
-      )
-      ORDER BY created_at ASC
-      `
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Ошибка загрузки групп задач:", error);
-
-    res.status(500).json({
-      error: "Ошибка загрузки групп задач",
-      message: error.message,
-    });
-  }
-});
-
-app.post("/api/task-groups", async (req, res) => {
-  try {
-    const { name } = req.body;
-
-    if (!name || !name.trim()) {
-      return res.status(400).json({
-        error: "Название группы обязательно",
-      });
-    }
-
-    const result = await pool.query(
-      `
-      INSERT INTO task_groups (
-        user_id,
-        name
-      )
-      SELECT
-        u.id,
-        $1
-      FROM users u
-      WHERE u.username = 'demo_user'
-      RETURNING id, name, created_at
-      `,
-      [name.trim()]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("Ошибка создания группы задач:", error);
-
-    if (error.code === "23505") {
-      return res.status(409).json({
-        error: "Группа с таким названием уже существует",
-      });
-    }
-
-    res.status(500).json({
-      error: "Ошибка создания группы задач",
-      message: error.message,
-    });
-  }
-});
-
-app.delete("/api/task-groups/:id", async (req, res) => {
-  try {
+    const userId = req.user.id;
     const { id } = req.params;
 
     const result = await pool.query(
       `
       DELETE FROM task_groups
       WHERE id = $1
-        AND user_id = (
-          SELECT id FROM users WHERE username = 'demo_user'
-        )
+        AND user_id = $2
       RETURNING id, name
       `,
-      [id]
+      [id, userId]
     );
 
     if (result.rows.length === 0) {
@@ -732,20 +1027,52 @@ app.delete("/api/task-groups/:id", async (req, res) => {
   }
 });
 
+app.delete("/api/tasks", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const result = await pool.query(
+      `
+      DELETE FROM tasks
+      WHERE user_id = $1
+      RETURNING *
+      `,
+      [userId]
+    );
+
+    res.json({
+      message: "Все задачи пользователя удалены",
+      deletedCount: result.rowCount,
+    });
+  } catch (error) {
+    console.error("Ошибка удаления всех задач:", error);
+
+    res.status(500).json({
+      message: "Ошибка при удалении всех задач",
+      error: error.message,
+    });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 
-app.patch("/api/workout-exercises/:id/complete", async (req, res) => {
+app.patch("/api/workout-exercises/:id/complete", authMiddleware, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
 
     const result = await pool.query(
       `
-      UPDATE workout_exercises
+      UPDATE workout_exercises we
       SET is_completed = true
-      WHERE id = $1
-      RETURNING id, is_completed
+      FROM workouts w
+      JOIN tasks t ON t.id = w.task_id
+      WHERE we.workout_id = w.id
+        AND we.id = $1
+        AND t.user_id = $2
+      RETURNING we.id, we.is_completed
       `,
-      [id]
+      [id, userId]
     );
 
     if (result.rows.length === 0) {
@@ -763,6 +1090,36 @@ app.patch("/api/workout-exercises/:id/complete", async (req, res) => {
 
     res.status(500).json({
       error: "Ошибка завершения упражнения",
+      message: error.message,
+    });
+  }
+});
+
+app.get("/api/task-groups", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        name,
+        color,
+        created_at
+      FROM task_groups
+      WHERE user_id = $1
+      ORDER BY created_at ASC
+      `,
+      [userId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Ошибка загрузки групп задач:", error);
+
+    res.status(500).json({
+      error: "Ошибка загрузки групп задач",
+      message: error.message,
     });
   }
 });

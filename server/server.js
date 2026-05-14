@@ -11,6 +11,75 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function parseDurationToSeconds(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parts = String(value).split(":").map(Number);
+
+  if (parts.some((part) => Number.isNaN(part))) {
+    return null;
+  }
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts;
+    return minutes * 60 + seconds;
+  }
+
+  if (parts.length === 3) {
+    const [hours, minutes, seconds] = parts;
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+
+  return null;
+}
+
+function formatSecondsToDuration(seconds) {
+  if (!seconds) {
+    return "";
+  }
+
+  const totalSeconds = Number(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0"
+    )}:${String(remainingSeconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(
+    remainingSeconds
+  ).padStart(2, "0")}`;
+}
+
+function formatExerciseMetric(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    exerciseId: row.exercise_id,
+    exerciseName: row.exercise_name || row.custom_exercise_name,
+    customExerciseName: row.custom_exercise_name,
+    measureType: row.measure_type,
+
+    weight: row.weight_kg === null ? null : Number(row.weight_kg),
+    reps: row.reps_count,
+    sets: row.sets_count,
+
+    distance: row.distance_km === null ? null : Number(row.distance_km),
+    time: formatSecondsToDuration(row.duration_seconds),
+
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+
+
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
 
@@ -81,6 +150,284 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
+});
+
+app.get("/api/exercise-metrics", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        user_exercise_metrics.*,
+        exercises.name AS exercise_name
+      FROM user_exercise_metrics
+      LEFT JOIN exercises ON exercises.id = user_exercise_metrics.exercise_id
+      WHERE user_exercise_metrics.user_id = $1
+      ORDER BY user_exercise_metrics.updated_at DESC
+      `,
+      [req.user.id]
+    );
+
+    res.json(result.rows.map(formatExerciseMetric));
+  } catch (error) {
+    console.error("Ошибка загрузки рабочих показателей:", error);
+    res.status(500).json({ error: "Не удалось загрузить рабочие показатели" });
+  }
+});
+
+app.post("/api/exercise-metrics", authMiddleware, async (req, res) => {
+  try {
+    const {
+      exerciseId,
+      exerciseName,
+      measureType,
+      weight,
+      reps,
+      sets,
+      distance,
+      time,
+    } = req.body;
+
+    const finalMeasureType = measureType || "weight_reps";
+    const durationSeconds = parseDurationToSeconds(time);
+
+    const selectedExerciseId = exerciseId || null;
+    const customExerciseName = selectedExerciseId ? null : exerciseName;
+
+    if (!selectedExerciseId && !customExerciseName) {
+      return res.status(400).json({ error: "Укажите упражнение" });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO user_exercise_metrics (
+        user_id,
+        exercise_id,
+        custom_exercise_name,
+        measure_type,
+        weight_kg,
+        reps_count,
+        sets_count,
+        distance_km,
+        duration_seconds
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+      `,
+      [
+        req.user.id,
+        selectedExerciseId,
+        customExerciseName,
+        finalMeasureType,
+        weight || null,
+        reps || null,
+        sets || null,
+        distance || null,
+        durationSeconds,
+      ]
+    );
+
+    const metric = result.rows[0];
+
+    await pool.query(
+      `
+      INSERT INTO user_exercise_metric_history (
+        metric_id,
+        user_id,
+        measure_type,
+        weight_kg,
+        reps_count,
+        sets_count,
+        distance_km,
+        duration_seconds
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        metric.id,
+        req.user.id,
+        metric.measure_type,
+        metric.weight_kg,
+        metric.reps_count,
+        metric.sets_count,
+        metric.distance_km,
+        metric.duration_seconds,
+      ]
+    );
+
+    const formattedResult = await pool.query(
+      `
+      SELECT
+        user_exercise_metrics.*,
+        exercises.name AS exercise_name
+      FROM user_exercise_metrics
+      LEFT JOIN exercises ON exercises.id = user_exercise_metrics.exercise_id
+      WHERE user_exercise_metrics.id = $1
+      `,
+      [metric.id]
+    );
+
+    res.status(201).json(formatExerciseMetric(formattedResult.rows[0]));
+  } catch (error) {
+    console.error("Ошибка создания рабочего показателя:", error);
+    res.status(500).json({ error: "Не удалось создать рабочий показатель" });
+  }
+});
+
+app.put("/api/exercise-metrics/:id", authMiddleware, async (req, res) => {
+  try {
+    const {
+      exerciseId,
+      exerciseName,
+      measureType,
+      weight,
+      reps,
+      sets,
+      distance,
+      time,
+    } = req.body;
+
+    const finalMeasureType = measureType || "weight_reps";
+    const durationSeconds = parseDurationToSeconds(time);
+
+    const selectedExerciseId = exerciseId || null;
+    const customExerciseName = selectedExerciseId ? null : exerciseName;
+
+    if (!selectedExerciseId && !customExerciseName) {
+      return res.status(400).json({ error: "Укажите упражнение" });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE user_exercise_metrics
+      SET
+        exercise_id = $1,
+        custom_exercise_name = $2,
+        measure_type = $3,
+        weight_kg = $4,
+        reps_count = $5,
+        sets_count = $6,
+        distance_km = $7,
+        duration_seconds = $8,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $9 AND user_id = $10
+      RETURNING *
+      `,
+      [
+        selectedExerciseId,
+        customExerciseName,
+        finalMeasureType,
+        weight || null,
+        reps || null,
+        sets || null,
+        distance || null,
+        durationSeconds,
+        req.params.id,
+        req.user.id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Показатель не найден" });
+    }
+
+    const metric = result.rows[0];
+
+    await pool.query(
+      `
+      INSERT INTO user_exercise_metric_history (
+        metric_id,
+        user_id,
+        measure_type,
+        weight_kg,
+        reps_count,
+        sets_count,
+        distance_km,
+        duration_seconds
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        metric.id,
+        req.user.id,
+        metric.measure_type,
+        metric.weight_kg,
+        metric.reps_count,
+        metric.sets_count,
+        metric.distance_km,
+        metric.duration_seconds,
+      ]
+    );
+
+    const formattedResult = await pool.query(
+      `
+      SELECT
+        user_exercise_metrics.*,
+        exercises.name AS exercise_name
+      FROM user_exercise_metrics
+      LEFT JOIN exercises ON exercises.id = user_exercise_metrics.exercise_id
+      WHERE user_exercise_metrics.id = $1
+      `,
+      [metric.id]
+    );
+
+    res.json(formatExerciseMetric(formattedResult.rows[0]));
+  } catch (error) {
+    console.error("Ошибка обновления рабочего показателя:", error);
+    res.status(500).json({ error: "Не удалось обновить рабочий показатель" });
+  }
+});
+
+app.delete("/api/exercise-metrics/:id", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      DELETE FROM user_exercise_metrics
+      WHERE id = $1 AND user_id = $2
+      RETURNING id
+      `,
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Показатель не найден" });
+    }
+
+    res.json({ message: "Показатель удалён" });
+  } catch (error) {
+    console.error("Ошибка удаления рабочего показателя:", error);
+    res.status(500).json({ error: "Не удалось удалить рабочий показатель" });
+  }
+});
+
+app.get("/api/exercise-metrics/:id/history", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM user_exercise_metric_history
+      WHERE metric_id = $1 AND user_id = $2
+      ORDER BY recorded_at DESC
+      `,
+      [req.params.id, req.user.id]
+    );
+
+    res.json(
+      result.rows.map((row) => ({
+        id: row.id,
+        metricId: row.metric_id,
+        measureType: row.measure_type,
+        weight: row.weight_kg === null ? null : Number(row.weight_kg),
+        reps: row.reps_count,
+        sets: row.sets_count,
+        distance: row.distance_km === null ? null : Number(row.distance_km),
+        time: formatSecondsToDuration(row.duration_seconds),
+        recordedAt: row.recorded_at,
+      }))
+    );
+  } catch (error) {
+    console.error("Ошибка загрузки истории показателя:", error);
+    res.status(500).json({ error: "Не удалось загрузить историю показателя" });
+  }
 });
 
 app.post("/api/auth/register", async (req, res) => {

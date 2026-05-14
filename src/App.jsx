@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./styles/styles.css";
 import AppLogo from "./components/AppLogo.jsx";
 
-const API_URL = "http://localhost:5000/api";
+const API_URL = "http://localhost:5000/api"; //Для сервера пишем просто /api
 
 const groupColors = [
   "#FEE2E2", // мягкий красный
@@ -110,6 +110,8 @@ function App() {
 
   const [isFocusModeOpen, setIsFocusModeOpen] = useState(false);
   const [focusTask, setFocusTask] = useState(null);
+
+  const [workingWeights, setWorkingWeights] = useState([]);
 
   useEffect(() => {
   const savedToken = localStorage.getItem("token");
@@ -221,6 +223,7 @@ function checkAuth(token) {
 
       loadTasks(token);
       loadTaskGroups(token);
+      loadExerciseMetrics(token);
     })
     .catch((error) => {
       console.error("Ошибка проверки авторизации:", error);
@@ -262,7 +265,7 @@ function registerUser(formData) {
 
       loadTasks(data.token);
       loadTaskGroups(data.token);
-
+      loadExerciseMetrics(data.token);
     })
     .catch((error) => {
       console.error("Ошибка регистрации:", error);
@@ -296,6 +299,7 @@ function loginAsGuest() {
   });
 
   setTasks([]);
+  setWorkingWeights([]);
   setIsLoggedIn(true);
   setActivePage("Задачи");
 }
@@ -325,6 +329,7 @@ function loginUser(formData) {
 
       loadTasks(data.token);
       loadTaskGroups(data.token);
+      loadExerciseMetrics(data.token);
     })
     .catch((error) => {
       console.error("Ошибка входа:", error);
@@ -342,6 +347,7 @@ function logout() {
   setIsLoggedIn(false);
   setTasks([]);
   setTaskGroups([]);
+  setWorkingWeights([]);
   setActivePage("Задачи");
 }
 
@@ -395,10 +401,64 @@ function logout() {
       localStorage.setItem("activePage", activePage);
     }, [activePage]);
 
+function loadExerciseMetrics(token = localStorage.getItem("token")) {
+  if (!token || currentUser?.is_guest) {
+    setWorkingWeights([]);
+    return;
+  }
+
+  fetch(`${API_URL}/exercise-metrics`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (!Array.isArray(data)) {
+        console.error("Ошибка загрузки рабочих показателей:", data);
+        setWorkingWeights([]);
+        return;
+      }
+
+      setWorkingWeights(data);
+    })
+    .catch((error) => {
+      console.error("Ошибка загрузки рабочих показателей:", error);
+      setWorkingWeights([]);
+    });
+}
+
   function loadTasks(token = localStorage.getItem("token")) {
   if (!token) {
     return;
   }
+
+  function loadExerciseMetrics(token = localStorage.getItem("token")) {
+  if (!token || currentUser?.is_guest) {
+    setWorkingWeights([]);
+    return;
+  }
+
+  fetch(`${API_URL}/exercise-metrics`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (!Array.isArray(data)) {
+        console.error("Ошибка загрузки рабочих показателей:", data);
+        setWorkingWeights([]);
+        return;
+      }
+
+      setWorkingWeights(data);
+    })
+    .catch((error) => {
+      console.error("Ошибка загрузки рабочих показателей:", error);
+      setWorkingWeights([]);
+    });
+}
 
   fetch(`${API_URL}/tasks`, {
     headers: {
@@ -803,6 +863,8 @@ function createTask(formData) {
             muscleGroups={muscleGroups}
             availableExercises={availableExercises}
             compatibleGroups={compatibleGroups}
+            workingWeights={workingWeights}
+            setWorkingWeights={setWorkingWeights}
           />
         );
 
@@ -867,39 +929,6 @@ function createTask(formData) {
 >
   {isMobileMenuOpen ? "×" : "☰"}
 </button>
-
-        <button
-          className={
-            isSidebarCollapsed
-              ? "desktop-sidebar-toggle collapsed"
-              : "desktop-sidebar-toggle"
-          }
-          onClick={() => setIsSidebarCollapsed((current) => !current)}
-          title={
-            isSidebarCollapsed
-              ? "Показать боковую панель"
-              : "Скрыть боковую панель"
-          }
-          aria-label={
-            isSidebarCollapsed
-              ? "Показать боковую панель"
-              : "Скрыть боковую панель"
-          }
-        >
-          <svg viewBox="0 0 24 24" className="sidebar-toggle-icon">
-            <rect x="4" y="5" width="16" height="14" rx="3" />
-            <path d="M9 5V19" />
-            <path
-              className="sidebar-toggle-arrow-open"
-              d="M15 10L13 12L15 14"
-            />
-            <path
-              className="sidebar-toggle-arrow-closed"
-              d="M13 10L15 12L13 14"
-            />
-          </svg>
-        </button>
-
         {isMobileMenuOpen && (
           <div
             className="mobile-menu-backdrop"
@@ -910,8 +939,12 @@ function createTask(formData) {
         <Sidebar
           activePage={activePage}
           setActivePage={setActivePage}
+          tasks={tasks}
+          currentUser={currentUser}
+          subscription={subscription}
           isMobileMenuOpen={isMobileMenuOpen}
           isSidebarCollapsed={isSidebarCollapsed}
+          setIsSidebarCollapsed={setIsSidebarCollapsed}
           closeMobileMenu={() => setIsMobileMenuOpen(false)}
         />
 
@@ -1946,58 +1979,196 @@ function WorkoutModal({
 function Sidebar({
   activePage,
   setActivePage,
+  tasks,
+  currentUser,
+  subscription,
   isMobileMenuOpen,
   isSidebarCollapsed,
+  setIsSidebarCollapsed,
   closeMobileMenu,
 }) {
+  const todayString = new Date().toISOString().split("T")[0];
+
+  const todayTasks = tasks.filter((task) => {
+    if (!task.rawDate) {
+      return false;
+    }
+
+    return task.rawDate.startsWith(todayString);
+  });
+
+  const todayRegularTasks = todayTasks.filter(
+    (task) => task.category !== "Тренировка" && task.status !== "Выполнена"
+  );
+
+  const todayWorkouts = todayTasks.filter(
+    (task) => task.category === "Тренировка"
+  );
+
+  const isPremium = subscription?.code === "premium";
+
+  const navGroups = [
+  {
+    title: "Планирование",
+    items: ["Задачи", "Календарь", "Тренировки", "Статистика"],
+  },
+  {
+    title: "Аккаунт",
+    items: ["Профиль"],
+  },
+];
+
+  function openPage(page) {
+    setActivePage(page);
+    closeMobileMenu();
+  }
+
+  function renderMenuButton(item, className = "sidebar-nav-item") {
+    return (
+      <button
+        key={item}
+        type="button"
+        className={activePage === item ? `${className} active` : className}
+        onClick={() => openPage(item)}
+        title={item}
+      >
+        <span className="sidebar-nav-icon">{getMenuIcon(item)}</span>
+        <span className="sidebar-nav-text">{item}</span>
+      </button>
+    );
+  }
+
   return (
     <>
       <aside
         className={
           isSidebarCollapsed
-            ? "sidebar desktop-collapsed"
-            : "sidebar"
+            ? "sidebar sunday-sidebar desktop-collapsed"
+            : "sidebar sunday-sidebar"
         }
       >
-        <div className="brand-row sidebar-brand">
-          <AppLogo size={48} />
+        <button
+  type="button"
+  className="sidebar-wall-toggle"
+  onClick={() => setIsSidebarCollapsed((current) => !current)}
+  title={isSidebarCollapsed ? "Развернуть меню" : "Свернуть меню"}
+  aria-label={isSidebarCollapsed ? "Развернуть меню" : "Свернуть меню"}
+/>
+        <div className="sidebar-brand-new">
+          
+  <button
+    type="button"
+    className="sidebar-logo-button"
+    onClick={() => openPage("Задачи")}
+    title="На главную"
+  >
+    <AppLogo size={42} />
+  </button>
 
-          <div>
-            <h1>Sunday</h1>
-            <p>Задачи · Календарь · ЗОЖ</p>
-          </div>
-        </div>
+  <div className="sidebar-brand-text">
+    <h1>Sunday</h1>
+    <p>Личный органайзер</p>
+  </div>
+  <button
+  type="button"
+  className="sidebar-inner-toggle"
+  onClick={() => setIsSidebarCollapsed((current) => !current)}
+  title={isSidebarCollapsed ? "Развернуть меню" : "Свернуть меню"}
+  aria-label={isSidebarCollapsed ? "Развернуть меню" : "Свернуть меню"}
+>
+  <svg
+    className="sidebar-inner-toggle-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+  >
+    {isSidebarCollapsed ? (
+      <path
+        d="M10 7L15 12L10 17"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ) : (
+      <path
+        d="M14 7L9 12L14 17"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    )}
+  </svg>
+</button>
+</div>
 
-        <nav className="menu">
-          {menuItems.map((item) => (
-            <button
-              key={item}
-              className={activePage === item ? "menu-btn active" : "menu-btn"}
-              onClick={() => {
-                setActivePage(item);
-                closeMobileMenu();
-              }}
-            >
-              <span>{getMenuIcon(item)}</span>
-              {item}
-            </button>
+        <nav className="sidebar-nav-new">
+          {navGroups.map((group) => (
+            <div className="sidebar-nav-group" key={group.title}>
+              <span className="sidebar-nav-title">{group.title}</span>
+
+              <div className="sidebar-nav-list">
+                {group.items.map((item) => renderMenuButton(item))}
+              </div>
+            </div>
           ))}
         </nav>
 
-        <div className="premium-card dark">
-          <h3>✦ Premium</h3>
+        <div className="sidebar-today-card">
+          <span>Сегодня</span>
+
+          <div className="sidebar-today-grid">
+            <div>
+              <strong>{todayRegularTasks.length}</strong>
+              <p>задачи</p>
+            </div>
+
+            <div>
+              <strong>{todayWorkouts.length}</strong>
+              <p>тренировки</p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className={isPremium ? "sidebar-premium-new active" : "sidebar-premium-new"}
+          onClick={() => openPage("Профиль")}
+        >
+          <span>✦ Premium</span>
+
+          <strong>
+            {isPremium ? "Активен" : "Больше возможностей"}
+          </strong>
+
           <p>
-            Расширенная статистика, готовые программы и неограниченные тренировки.
+            {isPremium
+              ? "Расширенные функции доступны"
+              : "Статистика, программы и расширенные тренировки"}
           </p>
-          <button>Подробнее</button>
+        </button>
+
+        <div className="sidebar-user-new">
+          <div className="sidebar-user-avatar">
+            {(currentUser?.username || currentUser?.name || "Г")
+              .charAt(0)
+              .toUpperCase()}
+          </div>
+
+          <div className="sidebar-user-info">
+            <strong>
+              {currentUser?.username || currentUser?.name || "Гость"}
+            </strong>
+            <p>{currentUser?.is_guest ? "Гостевой режим" : "Аккаунт активен"}</p>
+          </div>
         </div>
       </aside>
 
       <div
         className={
           isMobileMenuOpen
-            ? "mobile-top-menu open"
-            : "mobile-top-menu"
+            ? "mobile-top-menu sunday-mobile-menu open"
+            : "mobile-top-menu sunday-mobile-menu"
         }
       >
         <div className="mobile-top-menu-header">
@@ -2020,10 +2191,7 @@ function Sidebar({
                   ? "mobile-top-menu-item active"
                   : "mobile-top-menu-item"
               }
-              onClick={() => {
-                setActivePage(item);
-                closeMobileMenu();
-              }}
+              onClick={() => openPage(item)}
             >
               <span>{getMenuIcon(item)}</span>
               {item}
@@ -3224,529 +3392,546 @@ function CalendarTaskItem({ task, deleteTask, markTaskDone }) {
 }
 
 function WorkoutsPage({
-  tasks,
-  openWorkoutModal,
-  markWorkoutExerciseDone,
-  muscleGroups,
-  availableExercises,
-  compatibleGroups,
+  tasks = [],
+  availableExercises = [],
+  workingWeights = [],
+  setWorkingWeights,
 }) {
   const workouts = tasks.filter((task) => task.category === "Тренировка");
 
-  const exercises = Array.isArray(availableExercises)
-    ? availableExercises
-    : [];
+  const [activeSection, setActiveSection] = useState("weights");
+  const [isWorkingWeightModalOpen, setIsWorkingWeightModalOpen] =
+    useState(false);
+  const [editingWorkingWeight, setEditingWorkingWeight] = useState(null);
 
-  const muscles = Array.isArray(muscleGroups)
-    ? muscleGroups
-    : [];
+  const sections = [
+    {
+      id: "weights",
+      title: "Мой рабочий вес",
+      subtitle: "Вес, подходы и повторения для каждого упражнения",
+      count: workingWeights.length,
+      countText: "упражнений",
+    },
+    {
+      id: "plans",
+      title: "Мои тренировки",
+      subtitle: "Запланированные тренировки и будущий режим выполнения",
+      count: workouts.length,
+      countText: "запланировано",
+    },
+    {
+      id: "guides",
+      title: "Гайды",
+      subtitle: "Техника выполнения упражнений и частые ошибки",
+      count: availableExercises.length,
+      countText: "гайдов",
+    },
+  ];
 
-  const muscleNames = muscles.map((muscle) => muscle.name);
-
-  const exercisesByMuscle = muscleNames.reduce((result, muscleName) => {
-    result[muscleName] = exercises.filter((exercise) => {
-      const exerciseMuscle = exercise.muscle || exercise.muscle_group || "";
-      return exerciseMuscle === muscleName;
-    });
-
-    return result;
-  }, {});
-
-  const defaultMuscle = muscleNames[0] || "";
-
-  const [selectedMuscles, setSelectedMuscles] = useState(
-    defaultMuscle ? [defaultMuscle] : []
-  );
-
-  const [plannedExercises, setPlannedExercises] = useState([]);
-
-  const [isWorkoutBuilderOpen, setIsWorkoutBuilderOpen] = useState(false);
-
-function formatExerciseDifficulty(value) {
-  const normalizedValue = String(value || "")
-    .trim()
-    .toLowerCase();
-
-  if (
-    normalizedValue === "easy" ||
-    normalizedValue === "low" ||
-    normalizedValue === "низкая" ||
-    normalizedValue === "легко" ||
-    normalizedValue === "новичок"
-  ) {
-    return "Низкая";
+  function openAddWorkingWeightModal() {
+    setEditingWorkingWeight(null);
+    setIsWorkingWeightModalOpen(true);
   }
 
-  if (
-    normalizedValue === "hard" ||
-    normalizedValue === "high" ||
-    normalizedValue === "сложная" ||
-    normalizedValue === "высокая" ||
-    normalizedValue === "тяжело"
-  ) {
-    return "Высокая";
+  function openEditWorkingWeightModal(item) {
+    setEditingWorkingWeight(item);
+    setIsWorkingWeightModalOpen(true);
   }
 
-  return "Средняя";
-}
-
-function getCompatibleMuscleNames(muscleName) {
-  const items = Array.isArray(compatibleGroups) ? compatibleGroups : [];
-
-  return items
-    .filter((item) => {
-      const sourceMuscle =
-        item.muscle ||
-        item.muscle_name ||
-        item.main_muscle ||
-        item.source_muscle ||
-        item.group_name ||
-        item.name;
-
-      return sourceMuscle === muscleName;
-    })
-    .map((item) => {
-      return (
-        item.compatible_muscle ||
-        item.compatible_muscle_name ||
-        item.compatible_group ||
-        item.compatible_group_name ||
-        item.related_muscle ||
-        item.target_muscle ||
-        item.name_compatible
-      );
-    })
-    .filter(Boolean);
-}
-
-const selectedExercises = selectedMuscles.flatMap((muscle) =>
-  (exercisesByMuscle[muscle] || []).map((exercise) => ({
-    id: exercise.id,
-    name: exercise.name,
-    muscle: exercise.muscle || exercise.muscle_group || muscle,
-    sets: exercise.sets || exercise.sets_count || 3,
-    reps: exercise.reps || exercise.reps_count || 10,
-    difficulty: formatExerciseDifficulty(
-      exercise.difficulty || exercise.difficulty_level || exercise.level
-    ),
-  }))
-);
-
-const mainMuscle = selectedMuscles[0];
-
-const recommendedMuscles = getCompatibleMuscleNames(mainMuscle).filter(
-  (muscle) => muscleNames.includes(muscle) && !selectedMuscles.includes(muscle)
-);
-
-  const todayString = new Date().toISOString().split("T")[0];
-
-  const todayWorkouts = workouts.filter((workout) => {
-    if (!workout.rawDate) return false;
-    return workout.rawDate.startsWith(todayString);
-  });
-
-  const completedWorkouts = workouts.filter(
-    (workout) => workout.status === "Выполнена"
-  );
-
-  const totalExercises = workouts.reduce((sum, workout) => {
-    return sum + (workout.exercises ? workout.exercises.length : 0);
-  }, 0);
-
-  const nextWorkout = todayWorkouts[0] || workouts[0];
-
-  function toggleMuscle(muscle) {
-    setSelectedMuscles((currentMuscles) => {
-      const isSelected = currentMuscles.includes(muscle);
-
-      if (isSelected && currentMuscles.length === 1) {
-        return currentMuscles;
-      }
-
-      if (isSelected) {
-        return currentMuscles.filter((item) => item !== muscle);
-      }
-
-      return [...currentMuscles, muscle];
-    });
+  function closeWorkingWeightModal() {
+    setEditingWorkingWeight(null);
+    setIsWorkingWeightModalOpen(false);
   }
 
-  function addExerciseToPlan(exercise) {
-    const isAlreadyAdded = plannedExercises.some(
-      (item) => item.id === exercise.id
-    );
+  function saveWorkingWeight(newItem) {
+  const token = localStorage.getItem("token");
 
-    if (isAlreadyAdded) {
-      return;
+  if (!token) {
+    alert("Необходимо войти в аккаунт");
+    return;
+  }
+
+  const isEditing = Boolean(newItem.id && editingWorkingWeight);
+
+  fetch(
+    isEditing
+      ? `${API_URL}/exercise-metrics/${newItem.id}`
+      : `${API_URL}/exercise-metrics`,
+    {
+      method: isEditing ? "PUT" : "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(newItem),
     }
+  )
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
 
-    setPlannedExercises((currentExercises) => [...currentExercises, exercise]);
+      setWorkingWeights((current) => {
+        const exists = current.some((item) => item.id === data.id);
+
+        if (exists) {
+          return current.map((item) => (item.id === data.id ? data : item));
+        }
+
+        return [data, ...current];
+      });
+
+      closeWorkingWeightModal();
+    })
+    .catch((error) => {
+      console.error("Ошибка сохранения рабочего показателя:", error);
+      alert("Не удалось сохранить показатель");
+    });
+}
+
+function deleteWorkingWeight(id) {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    alert("Необходимо войти в аккаунт");
+    return;
   }
 
-  function removeExerciseFromPlan(exerciseId) {
-    setPlannedExercises((currentExercises) =>
-      currentExercises.filter((exercise) => exercise.id !== exerciseId)
-    );
-  }
+  fetch(`${API_URL}/exercise-metrics/${id}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
 
-  function clearPlan() {
-    setPlannedExercises([]);
-  }
+      setWorkingWeights((current) => current.filter((item) => item.id !== id));
+      closeWorkingWeightModal();
+    })
+    .catch((error) => {
+      console.error("Ошибка удаления рабочего показателя:", error);
+      alert("Не удалось удалить показатель");
+    });
+}
 
   return (
-    <section className="workouts-page">
+    <section>
       <PageHeader
         title="Тренировки"
-        subtitle="Планируйте тренировки, собирайте упражнения и отслеживайте прогресс."
-        actions={
-          <button className="primary-btn" onClick={openWorkoutModal}>
-            + Добавить тренировку
-          </button>
-        }
+        subtitle="Рабочие веса, запланированные тренировки и гайды по упражнениям."
       />
 
-      <div className="workouts-hero">
-        <div className="workouts-today-card">
-          <span className="workouts-card-label">Сегодня</span>
+      <div className="training-page-clean">
+        <div className="training-section-grid">
+          {sections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className={
+                activeSection === section.id
+                  ? "training-section-card active"
+                  : "training-section-card"
+              }
+              onClick={() => setActiveSection(section.id)}
+            >
+              <div>
+                <span>{section.title}</span>
+                <p>{section.subtitle}</p>
+              </div>
 
-          {todayWorkouts.length > 0 ? (
-            <>
-              <h3>{todayWorkouts[0].title}</h3>
-
-              <p>
-                {todayWorkouts[0].muscle || "Тренировка"} ·{" "}
-                {(todayWorkouts[0].exercises || []).length} упражнений
-              </p>
-
-              <button
-                type="button"
-                className="workouts-start-btn"
-                onClick={openWorkoutModal}
-              >
-                Открыть тренировку
-              </button>
-            </>
-          ) : (
-            <>
-              <h3>Тренировки на сегодня нет</h3>
-
-              <p>
-                Можно собрать тренировку ниже или создать её через стандартную
-                форму.
-              </p>
-
-              <button
-                type="button"
-                className="workouts-start-btn"
-                onClick={openWorkoutModal}
-              >
-                Создать тренировку
-              </button>
-            </>
-          )}
+              <strong>
+                {section.count}
+                <small>{section.countText}</small>
+              </strong>
+            </button>
+          ))}
         </div>
 
-        <div className="workouts-stats-grid">
-          <div className="workouts-stat-card">
-            <span>Всего</span>
-            <strong>{workouts.length}</strong>
-            <p>тренировок</p>
-          </div>
+        <div className="training-active-panel">
+          {activeSection === "weights" && (
+            <section className="training-panel-section">
+              <div className="training-panel-header">
+                <div>
+                  <span>Мой рабочий вес</span>
+                  <h3>Рабочие веса по упражнениям</h3>
+                  <p>
+                    Храни вес, повторения и подходы для каждого упражнения.
+                    Потом эти данные пойдут в статистику прогресса.
+                  </p>
+                </div>
 
-          <div className="workouts-stat-card">
-            <span>Готово</span>
-            <strong>{completedWorkouts.length}</strong>
-            <p>завершено</p>
-          </div>
-
-          <div className="workouts-stat-card">
-            <span>Упражнения</span>
-            <strong>{totalExercises}</strong>
-            <p>в плане</p>
-          </div>
-        </div>
-      </div>
-
-      <div
-  className={
-    isWorkoutBuilderOpen
-      ? "workout-builder workout-builder-open"
-      : "workout-builder"
-  }
->
-  <button
-    type="button"
-    className="workout-builder-toggle"
-    onClick={() => setIsWorkoutBuilderOpen((current) => !current)}
-  >
-    <div>
-      <span>Конструктор</span>
-      <h3>Соберите тренировку</h3>
-      <p>
-        Выберите группы мышц, добавьте упражнения и сохраните готовый план.
-      </p>
-    </div>
-
-    <strong>{isWorkoutBuilderOpen ? "−" : "+"}</strong>
-  </button>
-
-  {isWorkoutBuilderOpen && (
-    <div className="workout-builder-body">
-      <div className="workout-builder-header">
-        <div>
-          <span>План тренировки</span>
-          <h3>{selectedMuscles.join(" + ")}</h3>
-        </div>
-
-        <button
-          type="button"
-          className="workout-builder-clear-btn"
-          onClick={clearPlan}
-          disabled={plannedExercises.length === 0}
-        >
-          Очистить
-        </button>
-      </div>
-
-      <div className="workout-builder-grid">
-          <div className="muscle-picker-card">
-            <div className="workout-block-title">
-              <span>Шаг 1</span>
-              <h4>Группы мышц</h4>
-            </div>
-
-            <div className="muscle-grid">
-              {muscleNames.map((muscle) => (
                 <button
                   type="button"
-                  key={muscle}
-                  className={
-                    selectedMuscles.includes(muscle)
-                      ? "muscle-card active"
-                      : "muscle-card"
-                  }
-                  onClick={() => toggleMuscle(muscle)}
+                  className="training-action-btn"
+                  onClick={openAddWorkingWeightModal}
                 >
-                  <strong>{muscle}</strong>
-                  <span>{(exercisesByMuscle[muscle] || []).length} упражнений</span>
+                  Добавить упражнение
                 </button>
-              ))}
-            </div>
-
-            <div className="compatible-muscles">
-  <span>Хорошо сочетается:</span>
-
-  {recommendedMuscles.length === 0 ? (
-    <p className="compatible-empty">
-      Для выбранной группы пока нет рекомендаций.
-    </p>
-  ) : (
-    <div>
-      {recommendedMuscles.map((muscle) => (
-        <button
-          type="button"
-          key={muscle}
-          className={
-            selectedMuscles.includes(muscle)
-              ? "compatible-chip active"
-              : "compatible-chip"
-          }
-          onClick={() => toggleMuscle(muscle)}
-        >
-          {muscle}
-        </button>
-      ))}
-    </div>
-  )}
-</div>
-          </div>
-
-          <div className="exercise-library-card">
-            <div className="workout-block-title">
-              <span>Шаг 2</span>
-              <h4>Упражнения</h4>
-            </div>
-
-            <div className="exercise-list">
-              {selectedExercises.map((exercise) => {
-                const isAdded = plannedExercises.some(
-                  (item) => item.id === exercise.id
-                );
-
-                return (
-                  <article className="exercise-card" key={exercise.id}>
-                    <div>
-                      <span>{exercise.muscle}</span>
-                      <h4>{exercise.name}</h4>
-
-                      <p>
-                        {exercise.sets} подхода · {exercise.reps} повторений
-                      </p>
-                    </div>
-
-                    <div className="exercise-card-actions">
-                      <span className="exercise-difficulty">
-                        {exercise.difficulty}
-                      </span>
-
-                      <button
-                        type="button"
-                        className={
-                          isAdded
-                            ? "exercise-add-btn added"
-                            : "exercise-add-btn"
-                        }
-                        onClick={() => addExerciseToPlan(exercise)}
-                        disabled={isAdded}
-                      >
-                        {isAdded ? "Добавлено" : "+"}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-
-          <aside className="current-workout-card">
-            <div className="workout-block-title">
-              <span>Шаг 3</span>
-              <h4>Моя тренировка</h4>
-            </div>
-
-            <div className="current-workout-summary">
-              <strong>{selectedMuscles.join(" + ")}</strong>
-              <p>{plannedExercises.length} упражнений в плане</p>
-            </div>
-
-            {plannedExercises.length === 0 ? (
-              <div className="current-workout-empty">
-                <span>+</span>
-                <p>Добавьте упражнения из списка слева.</p>
               </div>
-            ) : (
-              <div className="current-workout-list">
-                {plannedExercises.map((exercise, index) => (
-                  <div className="current-workout-item" key={exercise.id}>
-                    <span>{index + 1}</span>
 
-                    <div>
-                      <strong>{exercise.name}</strong>
-                      <p>
-                        {exercise.sets} × {exercise.reps}
-                      </p>
-                    </div>
-
+              {workingWeights.length === 0 ? (
+                <button
+                  type="button"
+                  className="training-empty-block training-empty-button"
+                  onClick={openAddWorkingWeightModal}
+                >
+                  <strong>Пока нет рабочих весов</strong>
+                  <p>
+                    Нажми сюда, чтобы добавить первое упражнение: вес,
+                    повторения и подходы.
+                  </p>
+                </button>
+              ) : (
+                <div className="training-weight-list">
+                  {workingWeights.map((item) => (
                     <button
+                      key={item.id}
                       type="button"
-                      onClick={() => removeExerciseFromPlan(exercise.id)}
-                      aria-label="Удалить упражнение"
+                      className="training-weight-item"
+                      onClick={() => openEditWorkingWeightModal(item)}
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <button
-            type="button"
-            className="current-workout-save-btn"
-            disabled={plannedExercises.length === 0}
-            onClick={() =>
-              openWorkoutModal({
-                title: `Тренировка: ${selectedMuscles.join(" + ")}`,
-                muscle_groups: selectedMuscles,
-                exercises: plannedExercises.map((exercise) => ({
-                  id: exercise.id,
-                  name: exercise.name,
-                  muscle: exercise.muscle,
-                })),
-              })
-            }
-          >
-            Сохранить тренировку
-          </button>
-          </aside>
-        </div>
-    </div>
-  )}
-</div>
-
-      {workouts.length === 0 ? (
-        <div className="workouts-empty">
-          <div className="workouts-empty-icon">+</div>
-
-          <h3>Создайте первую тренировку</h3>
-
-          <p>
-            Выберите группу мышц, добавьте упражнения и сохраните тренировку в
-            свой план.
-          </p>
-
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={openWorkoutModal}
-          >
-            Создать тренировку
-          </button>
-        </div>
-      ) : (
-        <div className="workouts-content-grid">
-          <div className="workouts-section-card">
-            <div className="workouts-section-header">
-              <div>
-                <span>План</span>
-                <h3>Мои тренировки</h3>
-              </div>
-            </div>
-
-            <div className="tasks-grid workouts-grid">
-              {workouts.map((workout) => (
-                <WorkoutCard
-                  key={workout.id}
-                  workout={workout}
-                  markWorkoutExerciseDone={markWorkoutExerciseDone}
-                />
-              ))}
-            </div>
-          </div>
-
-          <aside className="workouts-side-card">
-            <span className="workouts-card-label">Ближайшая</span>
-
-            {nextWorkout ? (
-              <>
-                <h3>{nextWorkout.title}</h3>
-
-                <p>
-                  {nextWorkout.date || "Без даты"} ·{" "}
-                  {(nextWorkout.exercises || []).length} упражнений
-                </p>
-
-                <div className="workouts-mini-list">
-                  {(nextWorkout.exercises || [])
-                    .slice(0, 4)
-                    .map((exercise, index) => (
-                      <div className="workouts-mini-exercise" key={index}>
-                        <span>{index + 1}</span>
+                      <div>
+                        <strong>{item.exerciseName}</strong>
                         <p>
-                          {typeof exercise === "string"
-                            ? exercise
-                            : exercise.name || exercise.title}
+                          {item.weight} кг × {item.reps} повторений ×{" "}
+                          {item.sets} подхода
                         </p>
                       </div>
-                    ))}
+
+                      <span>Изменить</span>
+                    </button>
+                  ))}
                 </div>
-              </>
-            ) : (
-              <p>Пока нет запланированных тренировок.</p>
-            )}
-          </aside>
+              )}
+            </section>
+          )}
+
+          {activeSection === "plans" && (
+            <section className="training-panel-section">
+              <div className="training-panel-header">
+                <div>
+                  <span>Мои тренировки</span>
+                  <h3>Запланированные тренировки</h3>
+                  <p>
+                    Здесь будут тренировки по дням: грудь, спина, ноги, кардио
+                    и другие планы.
+                  </p>
+                </div>
+
+                <button type="button" className="training-action-btn">
+                  Создать тренировку
+                </button>
+              </div>
+
+              <div className="training-empty-block">
+                <strong>Пока нет новой структуры тренировок</strong>
+                <p>
+                  Старый конструктор убрали. Следующим шагом сделаем новый
+                  список запланированных тренировок.
+                </p>
+              </div>
+            </section>
+          )}
+
+          {activeSection === "guides" && (
+            <section className="training-panel-section">
+              <div className="training-panel-header">
+                <div>
+                  <span>Гайды</span>
+                  <h3>Гайды по упражнениям</h3>
+                  <p>
+                    Здесь будут инструкции по технике выполнения, ошибкам и
+                    целевым мышцам.
+                  </p>
+                </div>
+
+                <button type="button" className="training-action-btn">
+                  Открыть гайды
+                </button>
+              </div>
+
+              <div className="training-empty-block">
+                <strong>Гайды подготовим отдельным блоком</strong>
+                <p>
+                  Потом добавим поиск упражнения и карточку с техникой
+                  выполнения.
+                </p>
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+
+      {isWorkingWeightModalOpen && (
+        <WorkingWeightModal
+          initialData={editingWorkingWeight}
+          exercises={availableExercises}
+          onClose={closeWorkingWeightModal}
+          onSave={saveWorkingWeight}
+          onDelete={deleteWorkingWeight}
+        />
+      )}
+    </section>
+  );
+}
+
+function WorkingWeightsBlock({
+  workingWeights,
+  exercises,
+  onAdd,
+  onEdit,
+}) {
+  const latestItems = workingWeights.slice(0, 4);
+
+  return (
+    <section className="working-weights-card">
+      <div className="working-weights-head">
+        <div>
+          <span>Мой рабочий вес</span>
+          <h3>Вес и повторения по упражнениям</h3>
+          <p>
+            Сохраняй рабочий вес, подходы и повторения. Эти данные потом пойдут
+            в статистику прогресса.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className="working-weights-add-btn"
+          onClick={onAdd}
+        >
+          + Добавить
+        </button>
+      </div>
+
+      {workingWeights.length === 0 ? (
+        <button
+          type="button"
+          className="working-weights-empty"
+          onClick={onAdd}
+        >
+          <strong>Пока нет рабочих весов</strong>
+          <p>
+            Добавь первое упражнение, например жим лёжа, присед или тягу.
+          </p>
+        </button>
+      ) : (
+        <div className="working-weights-list">
+          {latestItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="working-weight-item"
+              onClick={() => onEdit(item)}
+            >
+              <div>
+                <strong>{item.exerciseName}</strong>
+                <p>
+                  {item.weight} кг × {item.reps} повторений × {item.sets} подхода
+                </p>
+              </div>
+
+              <span>Изменить</span>
+            </button>
+          ))}
+
+          {workingWeights.length > 4 && (
+            <div className="working-weights-more">
+              Ещё упражнений: {workingWeights.length - 4}
+            </div>
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+function WorkingWeightModal({
+  initialData,
+  exercises,
+  onClose,
+  onSave,
+  onDelete,
+}) {
+  const [exerciseId, setExerciseId] = useState(initialData?.exerciseId || null);
+  const [exerciseName, setExerciseName] = useState(
+    initialData?.exerciseName || ""
+  );
+  const [isExerciseListOpen, setIsExerciseListOpen] = useState(false);
+
+  const [weight, setWeight] = useState(initialData?.weight || "");
+  const [reps, setReps] = useState(initialData?.reps || "");
+  const [sets, setSets] = useState(initialData?.sets || 3);
+
+  const exerciseOptions = Array.isArray(exercises) ? exercises : [];
+
+  const filteredExercises = exerciseOptions
+    .filter((exercise) => {
+      const name = String(exercise.name || "").toLowerCase();
+      const query = exerciseName.trim().toLowerCase();
+
+      if (!query) {
+        return true;
+      }
+
+      return name.includes(query);
+    })
+    .slice(0, 8);
+
+  function selectExercise(exercise) {
+    setExerciseId(exercise.id);
+    setExerciseName(exercise.name);
+    setIsExerciseListOpen(false);
+  }
+
+  function handleExerciseNameChange(value) {
+    setExerciseName(value);
+    setExerciseId(null);
+    setIsExerciseListOpen(true);
+  }
+
+  function handleSave(event) {
+    event.preventDefault();
+
+    const trimmedExerciseName = exerciseName.trim();
+
+    if (!trimmedExerciseName || !weight || !reps || !sets) {
+      return;
+    }
+
+    const item = {
+      ...(initialData?.id ? { id: initialData.id } : {}),
+      exerciseId,
+      exerciseName: trimmedExerciseName,
+      weight: Number(weight),
+      reps: Number(reps),
+      sets: Number(sets),
+      updatedAt: new Date().toISOString(),
+    };
+
+    onSave(item);
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="simple-modal working-weight-modal" onSubmit={handleSave}>
+        <div className="modal-header">
+          <div>
+            <h2>
+              {initialData ? "Изменить рабочий вес" : "Добавить рабочий вес"}
+            </h2>
+          </div>
+
+          <button type="button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <label className="field exercise-autocomplete-field">
+          <span>Упражнение</span>
+
+          <input
+            type="text"
+            value={exerciseName}
+            onChange={(event) => handleExerciseNameChange(event.target.value)}
+            onFocus={() => setIsExerciseListOpen(true)}
+            placeholder="Начните вводить упражнение..."
+            autoComplete="off"
+          />
+
+          {isExerciseListOpen && exerciseName.trim() && (
+            <div className="exercise-autocomplete-list">
+              {filteredExercises.length === 0 ? (
+                <div className="exercise-autocomplete-empty">
+                  Упражнение не найдено. Можно сохранить своё название.
+                </div>
+              ) : (
+                filteredExercises.map((exercise) => (
+                  <button
+                    type="button"
+                    key={exercise.id}
+                    className="exercise-autocomplete-item"
+                    onClick={() => selectExercise(exercise)}
+                  >
+                    <strong>{exercise.name}</strong>
+
+                    {(exercise.muscle || exercise.muscle_group) && (
+                      <span>{exercise.muscle || exercise.muscle_group}</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          {exerciseId && (
+            <div className="field-hint">
+              Упражнение выбрано из базы
+            </div>
+          )}
+        </label>
+
+        <div className="form-grid">
+          <label className="field">
+            <span>Рабочий вес, кг</span>
+
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={weight}
+              onChange={(event) => setWeight(event.target.value)}
+              placeholder="60"
+            />
+          </label>
+
+          <label className="field">
+            <span>Повторения</span>
+
+            <input
+              type="number"
+              min="1"
+              value={reps}
+              onChange={(event) => setReps(event.target.value)}
+              placeholder="8"
+            />
+          </label>
+        </div>
+
+        <label className="field">
+          <span>Подходы</span>
+
+          <input
+            type="number"
+            min="1"
+            value={sets}
+            onChange={(event) => setSets(event.target.value)}
+            placeholder="3"
+          />
+        </label>
+
+        <button type="submit" className="primary-btn full">
+          Сохранить
+        </button>
+
+        {initialData && (
+          <button
+            type="button"
+            className="danger-btn full working-weight-delete-btn"
+            onClick={() => onDelete(initialData.id)}
+          >
+            Удалить упражнение
+          </button>
+        )}
+      </form>
+    </div>
   );
 }
 

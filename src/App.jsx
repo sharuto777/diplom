@@ -100,7 +100,9 @@ function App() {
   const [isSavingWorkout, setIsSavingWorkout] = useState(false);
 
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskModalInitialDate, setTaskModalInitialDate] = useState(null);
   const [isWorkoutModalOpen, setIsWorkoutModalOpen] = useState(false);
+  const [workoutModalInitialData, setWorkoutModalInitialData] = useState(null);
 
   const [muscleGroups, setMuscleGroups] = useState([]);
   const [availableExercises, setAvailableExercises] = useState([]);
@@ -130,6 +132,21 @@ function App() {
       return false;
     }
 
+    const now = new Date();
+now.setHours(0, 0, 0, 0);
+
+const oneMonthAgo = new Date(now);
+oneMonthAgo.setMonth(now.getMonth() - 1);
+
+if (task.rawDate) {
+  const taskDate = new Date(task.rawDate);
+  taskDate.setHours(0, 0, 0, 0);
+
+  if (taskDate < oneMonthAgo && task.status !== "Выполнена") {
+    return false;
+  }
+}
+
     const matchesGroup =
       activeTaskGroupId === "all" || task.groupId === activeTaskGroupId;
 
@@ -158,6 +175,23 @@ function App() {
   });
 }, [tasks, taskFilter, searchQuery, activeTaskGroupId]);
 
+useEffect(() => {
+  const now = new Date();
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(now.getMonth() - 1);
+
+  tasks.forEach((task) => {
+    if (!task.rawDate || task.status === "Выполнена") {
+      return;
+    }
+
+    const taskDate = new Date(task.rawDate);
+
+    if (taskDate < oneMonthAgo) {
+      deleteTask(task.id);
+    }
+  });
+}, [tasks]);
 
 function checkAuth(token) {
   fetch(`${API_URL}/auth/me`, {
@@ -748,9 +782,12 @@ function createTask(formData) {
         return (
           <CalendarPage
             tasks={tasks}
-            createTask={createTask}
             deleteTask={deleteTask}
             markTaskDone={markTaskDone}
+            openTaskModal={(dateString) => {
+              setTaskModalInitialDate(dateString);
+              setIsTaskModalOpen(true);
+            }}
           />
         );
 
@@ -758,7 +795,14 @@ function createTask(formData) {
         return (
           <WorkoutsPage
             tasks={tasks}
-            openWorkoutModal={() => setIsWorkoutModalOpen(true)}
+            openWorkoutModal={(initialData = null) => {
+              setWorkoutModalInitialData(initialData);
+              setIsWorkoutModalOpen(true);
+            }}
+            markWorkoutExerciseDone={markWorkoutExerciseDone}
+            muscleGroups={muscleGroups}
+            availableExercises={availableExercises}
+            compatibleGroups={compatibleGroups}
           />
         );
 
@@ -787,7 +831,10 @@ function createTask(formData) {
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             deleteAllTasks={deleteAllTasks}
-            openTaskModal={() => setIsTaskModalOpen(true)}
+            openTaskModal={() => {
+              setTaskModalInitialDate(null);
+              setIsTaskModalOpen(true);
+            }}
             openWorkoutModal={() => setIsWorkoutModalOpen(true)}
             taskGroups={taskGroups}
             activeTaskGroupId={activeTaskGroupId}
@@ -873,7 +920,11 @@ function createTask(formData) {
 
       {isTaskModalOpen && (
         <TaskModal
-          onClose={() => setIsTaskModalOpen(false)}
+          initialDate={taskModalInitialDate}
+          onClose={() => {
+            setIsTaskModalOpen(false);
+            setTaskModalInitialDate(null);
+          }}
           onSubmit={createTask}
           isSaving={isSavingTask}
         />
@@ -883,7 +934,11 @@ function createTask(formData) {
 
       {isWorkoutModalOpen && (
         <WorkoutModal
-          onClose={() => setIsWorkoutModalOpen(false)}
+          initialData={workoutModalInitialData}
+          onClose={() => {
+            setWorkoutModalInitialData(null);
+            setIsWorkoutModalOpen(false);
+          }}
           onSubmit={createWorkout}
           muscleGroups={muscleGroups}
           availableExercises={availableExercises}
@@ -1356,18 +1411,22 @@ function SocialLinks() {
 }
 
 
-function TaskModal({ onClose, onSubmit, isSaving }) {
-  const [hasDeadline, setHasDeadline] = useState(false);
-  const [deadlineMode, setDeadlineMode] = useState("today");
+function TaskModal({ initialDate, onClose, onSubmit, isSaving }) {
+  const [hasDeadline, setHasDeadline] = useState(Boolean(initialDate));
+  const [deadlineMode, setDeadlineMode] = useState(
+    initialDate ? "custom" : "today"
+  );
 
   const [form, setForm] = useState({
     title: "",
     description: "",
     micro_step: "",
     priority: "medium",
-    selected_date: "",
+    selected_date: initialDate || "",
     selected_time: "",
   });
+
+  const todayString = new Date().toISOString().split("T")[0];
 
   function updateField(field, value) {
     setForm((currentForm) => ({
@@ -1429,12 +1488,25 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
     return;
   }
 
+  const selectedDate = buildDateTime();
+
+  if (selectedDate) {
+    const taskDate = new Date(selectedDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    taskDate.setHours(0, 0, 0, 0);
+
+    if (taskDate < today) {
+      alert("Нельзя создать задачу на прошедший день");
+      return;
+    }
+  }
     onSubmit({
     title: trimmedTitle,
     description: form.description,
     micro_step: form.micro_step.trim(),
     priority: form.priority,
-    start_datetime: buildDateTime(),
+    start_datetime: selectedDate,
     end_datetime: null,
   });
 }
@@ -1595,6 +1667,7 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
                 <span>Дата</span>
                 <input
                   type="date"
+                  min={todayString}
                   value={form.selected_date}
                   onChange={(event) =>
                     updateField("selected_date", event.target.value)
@@ -1627,6 +1700,7 @@ function TaskModal({ onClose, onSubmit, isSaving }) {
 
 
 function WorkoutModal({
+  initialData,
   onClose,
   onSubmit,
   muscleGroups,
@@ -1636,12 +1710,19 @@ function WorkoutModal({
 }) {
   const weekDays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
 
-  const [title, setTitle] = useState("Тренировка");
-  const [selectedMuscles, setSelectedMuscles] = useState([]);
-  const [selectedExercises, setSelectedExercises] = useState([]);
+  const [title, setTitle] = useState(
+  initialData?.title || "Тренировка"
+  );
+
+  const [selectedMuscles, setSelectedMuscles] = useState(
+    initialData?.muscle_groups || []
+  );
+
+  const [selectedExercises, setSelectedExercises] = useState(
+    initialData?.exercises || []
+  );
   const [selectedDays, setSelectedDays] = useState([]);
   const [exerciseSearch, setExerciseSearch] = useState("");
-
   const exercises = Array.isArray(availableExercises)
   ? availableExercises
   : [];
@@ -1975,6 +2056,34 @@ function TasksPage({
   deleteTaskGroup,
 }) {
   const regularTasks = tasks.filter((task) => task.category !== "Тренировка");
+
+  const today = new Date();
+today.setHours(0, 0, 0, 0);
+
+const oneMonthAgo = new Date(today);
+oneMonthAgo.setMonth(today.getMonth() - 1);
+
+const activeFilteredTasks = filteredTasks.filter((task) => {
+  if (!task.rawDate || task.status === "Выполнена") {
+    return true;
+  }
+
+  const taskDate = new Date(task.rawDate);
+  taskDate.setHours(0, 0, 0, 0);
+
+  return taskDate >= today;
+});
+
+const pastFilteredTasks = filteredTasks.filter((task) => {
+  if (!task.rawDate || task.status === "Выполнена") {
+    return false;
+  }
+
+  const taskDate = new Date(task.rawDate);
+  taskDate.setHours(0, 0, 0, 0);
+
+  return taskDate < today && taskDate >= oneMonthAgo;
+});
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 const searchRef = useRef(null);
 const searchInputRef = useRef(null);
@@ -2088,7 +2197,7 @@ const inProgress = regularTasks.filter(
 />
 
 
-      {filteredTasks.length === 0 ? (
+      {activeFilteredTasks.length === 0 && pastFilteredTasks.length === 0 ? (
   <button
     type="button"
     className="empty-state empty-state-clickable"
@@ -2100,18 +2209,44 @@ const inProgress = regularTasks.filter(
     <p>Нажмите сюда, чтобы создать новую задачу.</p>
   </button>
 ) : (
-  <div className="tasks-grid">
-    {filteredTasks.map((task) => (
-      <TaskCard
-        key={task.id}
-        task={task}
-        markTaskDone={markTaskDone}
-        markWorkoutExerciseDone={markWorkoutExerciseDone}
-        deleteTask={deleteTask}
-        openFocusMode={openFocusMode}
-      />
-    ))}
-  </div>
+  <>
+    {activeFilteredTasks.length > 0 && (
+      <div className="tasks-grid">
+        {activeFilteredTasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            markTaskDone={markTaskDone}
+            markWorkoutExerciseDone={markWorkoutExerciseDone}
+            deleteTask={deleteTask}
+            openFocusMode={openFocusMode}
+          />
+        ))}
+      </div>
+    )}
+
+    {pastFilteredTasks.length > 0 && (
+      <div className="past-tasks-section">
+        <div className="past-tasks-header">
+          <span>Прошедшее</span>
+          <p>Задачи, которые были запланированы раньше сегодняшнего дня.</p>
+        </div>
+
+        <div className="tasks-grid">
+          {pastFilteredTasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              markTaskDone={markTaskDone}
+              markWorkoutExerciseDone={markWorkoutExerciseDone}
+              deleteTask={deleteTask}
+              openFocusMode={openFocusMode}
+            />
+          ))}
+        </div>
+      </div>
+    )}
+  </>
 )}
 
       <button
@@ -2471,19 +2606,26 @@ function TaskCard({
   );
 }
 
-function CalendarPage({ tasks, createTask, deleteTask, markTaskDone }) {
+function CalendarPage({ tasks, deleteTask, markTaskDone, openTaskModal }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const [visibleDate, setVisibleDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(today);
-  const [isMobileDayPanelOpen, setIsMobileDayPanelOpen] = useState(true);
+  const [isMobileDayPanelOpen, setIsMobileDayPanelOpen] = useState(false);
 
-  const [isAddingTask, setIsAddingTask] = useState(false);
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskTime, setTaskTime] = useState("");
-  const [taskPriority, setTaskPriority] = useState("medium");
-  const [taskCategory, setTaskCategory] = useState("Личное");
+  const [previousVisibleDate, setPreviousVisibleDate] = useState(null);
+  const [monthDirection, setMonthDirection] = useState(null);
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+
+  const monthAnimationTimerRef = useRef(null);
+  const monthWheelLockRef = useRef(false);
+  const calendarMonthFrameRef = useRef(null);
+  const [dayNotes, setDayNotes] = useState(() => {
+  const savedNotes = localStorage.getItem("dayNotes");
+
+  return savedNotes ? JSON.parse(savedNotes) : {};
+});
 
   const currentYear = visibleDate.getFullYear();
   const currentMonth = visibleDate.getMonth();
@@ -2499,32 +2641,134 @@ function CalendarPage({ tasks, createTask, deleteTask, markTaskDone }) {
     year: "numeric",
   });
 
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-
-  const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
-  const emptyDaysBefore = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
-
-  const calendarCells = [
-    ...Array.from({ length: emptyDaysBefore }, () => null),
-    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
-  ];
-
   const selectedTasks = getTasksForDate(selectedDate);
+  const selectedCompletedTasks = selectedTasks.filter(
+    (task) => task.status === "Выполнена"
+  ).length;
+
+  const selectedActiveTasks = selectedTasks.length - selectedCompletedTasks;
+
+  const selectedDateKey = getDateString(selectedDate);
+  const selectedDayNote = dayNotes[selectedDateKey] || "";
   const selectedDateIsPast = isPastDate(selectedDate);
 
-  function goToPreviousMonth() {
-    setVisibleDate(new Date(currentYear, currentMonth - 1, 1));
+  
+
+  useEffect(() => {
+    localStorage.setItem("dayNotes", JSON.stringify(dayNotes));
+  }, [dayNotes]);
+  function animateToMonth(nextDate, direction) {
+    if (isPastMonth(nextDate)) {
+  return;
+}
+
+  if (
+    visibleDate.getFullYear() === nextDate.getFullYear() &&
+    visibleDate.getMonth() === nextDate.getMonth()
+  ) {
+    setIsMonthPickerOpen(false);
+    return;
   }
 
-  function goToNextMonth() {
-    setVisibleDate(new Date(currentYear, currentMonth + 1, 1));
+  clearTimeout(monthAnimationTimerRef.current);
+
+  setPreviousVisibleDate(visibleDate);
+  setMonthDirection(direction > 0 ? "next" : "prev");
+  setVisibleDate(nextDate);
+  setIsMonthPickerOpen(false);
+
+  monthAnimationTimerRef.current = setTimeout(() => {
+    setPreviousVisibleDate(null);
+    setMonthDirection(null);
+  }, 360);
+}
+
+function changeMonth(direction) {
+  const nextDate = new Date(
+    visibleDate.getFullYear(),
+    visibleDate.getMonth() + direction,
+    1
+  );
+
+  animateToMonth(nextDate, direction);
+}
+
+function goToPreviousMonth() {
+  changeMonth(-1);
+}
+
+function goToNextMonth() {
+  changeMonth(1);
+}
+
+function isPastMonth(date) {
+  const currentMonthDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  const checkedMonthDate = new Date(date.getFullYear(), date.getMonth(), 1);
+
+  return checkedMonthDate < currentMonthDate;
+}
+
+function goToCurrentMonth() {
+  const currentMonthDate = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    1
+  );
+
+  const direction = currentMonthDate > visibleDate ? 1 : -1;
+
+  animateToMonth(currentMonthDate, direction);
+  setSelectedDate(today);
+  setIsMobileDayPanelOpen(false);
+}
+
+function handleCalendarWheel(event) {
+  event.preventDefault();
+
+  if (monthWheelLockRef.current) {
+    return;
   }
 
-  function goToCurrentMonth() {
-    setVisibleDate(new Date());
-    setSelectedDate(today);
-    setIsMobileDayPanelOpen(true);
+  const direction = event.deltaY > 0 ? 1 : -1;
+
+  monthWheelLockRef.current = true;
+  changeMonth(direction);
+
+  setTimeout(() => {
+    monthWheelLockRef.current = false;
+  }, 520);
+}
+
+useEffect(() => {
+  const calendarElement = calendarMonthFrameRef.current;
+
+  if (!calendarElement) {
+    return;
   }
+
+  calendarElement.addEventListener("wheel", handleCalendarWheel, {
+    passive: false,
+  });
+
+  return () => {
+    calendarElement.removeEventListener("wheel", handleCalendarWheel);
+  };
+}, [visibleDate]);
+
+function pickMonth(monthIndex) {
+  const nextDate = new Date(visibleDate.getFullYear(), monthIndex, 1);
+  const direction = monthIndex > visibleDate.getMonth() ? 1 : -1;
+
+  animateToMonth(nextDate, direction || 1);
+}
+
+useEffect(() => {
+  return () => {
+    clearTimeout(monthAnimationTimerRef.current);
+  };
+}, []);
+
+
 
   function getDateString(date) {
     const year = date.getFullYear();
@@ -2534,12 +2778,17 @@ function CalendarPage({ tasks, createTask, deleteTask, markTaskDone }) {
     return `${year}-${month}-${day}`;
   }
 
-  function getCellDate(day) {
-    const cellDate = new Date(currentYear, currentMonth, day);
-    cellDate.setHours(0, 0, 0, 0);
+  function getCellDate(day, monthDate = visibleDate) {
+  const cellDate = new Date(
+    monthDate.getFullYear(),
+    monthDate.getMonth(),
+    day
+  );
 
-    return cellDate;
-  }
+  cellDate.setHours(0, 0, 0, 0);
+
+  return cellDate;
+}
 
   function isPastDate(date) {
     return date < today;
@@ -2565,159 +2814,205 @@ function CalendarPage({ tasks, createTask, deleteTask, markTaskDone }) {
   });
 }
 
-  function selectDay(day) {
-    if (!day) {
-      return;
-    }
-
-    const date = getCellDate(day);
-    const isSameDay = date.getTime() === selectedDate.getTime();
-
-    if (isSameDay) {
-      setIsMobileDayPanelOpen((current) => !current);
-    } else {
-      setSelectedDate(date);
-      setIsMobileDayPanelOpen(true);
-    }
-
-    setIsAddingTask(false);
-    setTaskTitle("");
-    setTaskTime("");
-    setTaskPriority("medium");
-    setTaskCategory("Личное");
+  function selectDay(day, monthDate = visibleDate) {
+  if (!day) {
+    return;
   }
 
-  function handleCreateTask(event) {
-    event.preventDefault();
+  const date = getCellDate(day, monthDate);
 
-    if (isPastDate(selectedDate)) {
-      return;
-    }
-
-    const dateString = getDateString(selectedDate);
-
-    createTask({
-      title: taskTitle,
-      description: "",
-      category: taskCategory,
-      priority: taskPriority,
-      start_datetime: taskTime
-        ? `${dateString}T${taskTime}:00`
-        : `${dateString}T12:00:00`,
-      end_datetime: null,
-    });
-
-    setTaskTitle("");
-    setTaskTime("");
-    setTaskPriority("medium");
-    setTaskCategory("Личное");
-    setIsAddingTask(false);
+  if (isPastDate(date)) {
+    return;
   }
+
+  const isSameDay = date.getTime() === selectedDate.getTime();
+
+  if (isSameDay) {
+    setIsMobileDayPanelOpen((current) => !current);
+  } else {
+    setSelectedDate(date);
+    setIsMobileDayPanelOpen(true);
+  }
+}
+
 
   function renderDayPanelContent() {
     return (
       <>
-        <div className="day-panel-header">
-          <div>
-            <span className="day-panel-label">Выбранный день</span>
-            <h3>{selectedDateText}</h3>
+        <div className="day-panel-header redesigned">
+  <div className="day-panel-title-block">
+    <div className="day-panel-date-row">
+      <h3>{selectedDateText}</h3>
 
-            {isTodayDate(selectedDate) && (
-              <p className="day-panel-today">Сегодня</p>
-            )}
+      {isTodayDate(selectedDate) && (
+        <span className="day-panel-tag today">Сегодня</span>
+      )}
 
-            {selectedDateIsPast && (
-              <p className="day-panel-past">
-                Прошедший день — добавление задач недоступно
-              </p>
-            )}
-          </div>
+      {selectedDateIsPast && (
+        <span className="day-panel-tag past">Прошедший день</span>
+      )}
+    </div>
+  </div>
 
-          {!selectedDateIsPast && (
-            <button
-              className="primary-btn"
-              type="button"
-              onClick={() => setIsAddingTask((current) => !current)}
-            >
-              {isAddingTask ? "Отмена" : "+ Задача"}
-            </button>
-          )}
-        </div>
+  {!selectedDateIsPast && (
+    <button
+      className="day-panel-add-btn"
+      type="button"
+      onClick={() => openTaskModal(getDateString(selectedDate))}
+    >
+      + Задача
+    </button>
+  )}
+</div>
 
-        {isAddingTask && !selectedDateIsPast && (
-          <form className="day-task-form" onSubmit={handleCreateTask}>
-            <label className="field">
-              <span>Название задачи</span>
-              <input
-                value={taskTitle}
-                onChange={(event) => setTaskTitle(event.target.value)}
-                placeholder="Например: подготовить отчёт"
-                required
-              />
-            </label>
+<DayPanelProgressBar
+  total={selectedTasks.length}
+  completed={selectedCompletedTasks}
+/>
 
-            <div className="form-grid">
-              <label className="field">
-                <span>Категория</span>
-                <select
-                  value={taskCategory}
-                  onChange={(event) => setTaskCategory(event.target.value)}
-                >
-                  <option>Личное</option>
-                  <option>Учёба</option>
-                  <option>Работа</option>
-                  <option>Здоровье</option>
-                </select>
-              </label>
+<div className="day-note-card">
+  <div className="day-note-header">
+    <span>Заметка дня</span>
+  </div>
 
-              <label className="field">
-                <span>Приоритет</span>
-                <select
-                  value={taskPriority}
-                  onChange={(event) => setTaskPriority(event.target.value)}
-                >
-                  <option value="low">Низкий</option>
-                  <option value="medium">Средний</option>
-                  <option value="high">Высокий</option>
-                </select>
-              </label>
-            </div>
-
-            <label className="field">
-              <span>Время, необязательно</span>
-              <input
-                type="time"
-                value={taskTime}
-                onChange={(event) => setTaskTime(event.target.value)}
-              />
-            </label>
-
-            <button className="primary-btn full" type="submit">
-              Добавить
-            </button>
-          </form>
-        )}
-
+  <textarea
+    value={selectedDayNote}
+    onChange={(event) =>
+      setDayNotes((currentNotes) => ({
+        ...currentNotes,
+        [selectedDateKey]: event.target.value,
+      }))
+    }
+    placeholder="Например: сегодня доделать визуальную часть диплома..."
+  />
+</div>
         <div className="day-tasks-list">
           {selectedTasks.length === 0 ? (
-            <div className="day-empty">
-              <strong>Задач нет</strong>
-              <p>На этот день пока ничего не запланировано.</p>
-            </div>
-          ) : (
-            selectedTasks.map((task) => (
-              <CalendarTaskItem
-                key={task.id}
-                task={task}
-                deleteTask={deleteTask}
-                markTaskDone={markTaskDone}
-              />
-            ))
-          )}
+  <button
+    type="button"
+    className="day-empty day-empty-beauty"
+    onClick={() => {
+      if (!selectedDateIsPast) {
+        openTaskModal(getDateString(selectedDate));
+      }
+    }}
+    disabled={selectedDateIsPast}
+  >
+    <span className="day-empty-icon">+</span>
+
+    <strong>
+      {selectedDateIsPast ? "День уже прошёл" : "День свободен"}
+    </strong>
+
+    <p>
+      {selectedDateIsPast
+        ? "На этот день задач не было."
+        : "Можно оставить его для отдыха или запланировать что-то полезное."}
+    </p>
+
+    {!selectedDateIsPast && (
+      <span className="day-empty-action">Запланировать день</span>
+    )}
+  </button>
+) : (
+  selectedTasks.map((task) => (
+    <CalendarTaskItem
+      key={task.id}
+      task={task}
+      deleteTask={deleteTask}
+      markTaskDone={markTaskDone}
+    />
+  ))
+)}
         </div>
       </>
     );
   }
+
+function renderCalendarGrid(monthDate, extraClassName = "") {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+
+  const daysInSelectedMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfSelectedMonth = new Date(year, month, 1).getDay();
+  const emptyDaysBeforeSelectedMonth =
+    firstDayOfSelectedMonth === 0 ? 6 : firstDayOfSelectedMonth - 1;
+
+  const cells = [
+    ...Array.from({ length: emptyDaysBeforeSelectedMonth }, () => null),
+    ...Array.from({ length: daysInSelectedMonth }, (_, index) => index + 1),
+  ];
+
+  return (
+    <div className={`calendar ${extraClassName}`}>
+      {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => (
+        <div className="week-day" key={day}>
+          {day}
+        </div>
+      ))}
+
+      {cells.map((day, index) => {
+        if (!day) {
+          return (
+            <button
+              type="button"
+              key={index}
+              className="calendar-day empty"
+              disabled
+            />
+          );
+        }
+
+        const cellDate = getCellDate(day, monthDate);
+        const dayTasks = getTasksForDate(cellDate);
+        const past = isPastDate(cellDate);
+        const currentToday = isTodayDate(cellDate);
+        const selected = isSelectedDate(cellDate);
+
+        const dayClassName = [
+          "calendar-day",
+          selected ? "selected" : "",
+          past ? "past" : "",
+          currentToday ? "today" : "",
+          dayTasks.length > 0 ? "has-tasks" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return (
+          <React.Fragment key={`${year}-${month}-${index}`}>
+            <button
+  type="button"
+  className={dayClassName}
+  onClick={() => {
+    if (!past) {
+      selectDay(day, monthDate);
+    }
+  }}
+  disabled={past}
+>
+  <div className="calendar-day-top">
+  <strong>{day}</strong>
+
+  {dayTasks.length > 0 && (
+    <span className="calendar-task-count">
+      {dayTasks.length}
+    </span>
+  )}
+</div>
+</button>
+
+            {selected && isMobileDayPanelOpen && !previousVisibleDate && (
+              <div className="day-panel mobile-inline-day-panel">
+                {renderDayPanelContent()}
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
 
   return (
     <section>
@@ -2729,106 +3024,93 @@ function CalendarPage({ tasks, createTask, deleteTask, markTaskDone }) {
       <div className="calendar-page-layout">
         <div className="calendar-left">
           <div className="calendar-header">
-            <button
-              type="button"
-              className="calendar-nav-btn"
-              onClick={goToPreviousMonth}
-              aria-label="Предыдущий месяц"
-            >
-              ←
-            </button>
+  <button
+    type="button"
+    className="calendar-nav-btn"
+    onClick={goToPreviousMonth}
+    disabled={isPastMonth(
+      new Date(visibleDate.getFullYear(), visibleDate.getMonth() - 1, 1)
+    )}
+    aria-label="Предыдущий месяц"
+  >
+    {"<"}
+  </button>
 
-            <div className="calendar-title">
-              <h3>{capitalizeFirstLetter(monthName)}</h3>
-              <button type="button" onClick={goToCurrentMonth}>
-                Сегодня
-              </button>
-            </div>
+  <div className="calendar-title">
+    <h3>
+      <button
+        type="button"
+        className="calendar-month-name-btn"
+        onClick={() => setIsMonthPickerOpen((current) => !current)}
+        title="Выбрать месяц"
+      >
+        {capitalizeFirstLetter(monthName)}
+      </button>
+    </h3>
+  </div>
 
-            <button
-              type="button"
-              className="calendar-nav-btn"
-              onClick={goToNextMonth}
-              aria-label="Следующий месяц"
-            >
-              →
-            </button>
-          </div>
+  <button
+    type="button"
+    className="calendar-nav-btn"
+    onClick={goToNextMonth}
+    aria-label="Следующий месяц"
+  >
+    {">"}
+  </button>
+</div>
 
-          <div className="calendar">
-            {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => (
-              <div className="week-day" key={day}>
-                {day}
-              </div>
-            ))}
+{isMonthPickerOpen && (
+  <div className="month-picker-inline">
+    {[
+      "Январь",
+      "Февраль",
+      "Март",
+      "Апрель",
+      "Май",
+      "Июнь",
+      "Июль",
+      "Август",
+      "Сентябрь",
+      "Октябрь",
+      "Ноябрь",
+      "Декабрь",
+    ].map((month, index) => (
+      <button
+        type="button"
+        key={month}
+        className={
+          index === visibleDate.getMonth()
+            ? "month-picker-inline-item active"
+            : isPastMonth(new Date(visibleDate.getFullYear(), index, 1))
+              ? "month-picker-inline-item disabled"
+              : "month-picker-inline-item"
+        }
+        onClick={() => {
+          if (!isPastMonth(new Date(visibleDate.getFullYear(), index, 1))) {
+            pickMonth(index);
+          }
+        }}
+        disabled={isPastMonth(new Date(visibleDate.getFullYear(), index, 1))}
+      >
+        {month}
+</button>
+    ))}
+  </div>
+)}
 
-            {calendarCells.map((day, index) => {
-              if (!day) {
-                return (
-                  <button
-                    type="button"
-                    key={index}
-                    className="calendar-day empty"
-                    disabled
-                  />
-                );
-              }
+<div
+  ref={calendarMonthFrameRef}
+  className={
+    monthDirection
+      ? `calendar-month-frame ${monthDirection}`
+      : "calendar-month-frame"
+  }
+>
+  {previousVisibleDate &&
+    renderCalendarGrid(previousVisibleDate, "calendar-layer calendar-old")}
 
-              const cellDate = getCellDate(day);
-              const dayTasks = getTasksForDate(cellDate);
-              const past = isPastDate(cellDate);
-              const currentToday = isTodayDate(cellDate);
-              const selected = isSelectedDate(cellDate);
-
-              return (
-                <React.Fragment key={index}>
-                  <button
-                    type="button"
-                    className={
-                      selected
-                        ? "calendar-day selected"
-                        : past
-                          ? "calendar-day past"
-                          : currentToday
-                            ? "calendar-day today"
-                            : "calendar-day"
-                    }
-                    onClick={() => selectDay(day)}
-                  >
-                    <div className="calendar-day-top">
-                      <strong>{day}</strong>
-
-                      {dayTasks.length > 0 && (
-                        <span className="calendar-task-dot">
-                          {dayTasks.length}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="calendar-day-events">
-                      {dayTasks.slice(0, 2).map((task) => (
-  <span key={task.id} className="calendar-event blue">
-    {task.title}
-  </span>
-))}
-
-                      {dayTasks.length > 2 && (
-                        <span className="calendar-more">
-                          + ещё {dayTasks.length - 2}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-
-                  {selected && isMobileDayPanelOpen && (
-                    <div className="day-panel mobile-inline-day-panel">
-                      {renderDayPanelContent()}
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </div>
+  {renderCalendarGrid(visibleDate, "calendar-layer calendar-current")}
+</div>
         </div>
 
         <aside className="day-panel desktop-day-panel">
@@ -2840,52 +3122,282 @@ function CalendarPage({ tasks, createTask, deleteTask, markTaskDone }) {
 }
 
 function CalendarTaskItem({ task, deleteTask, markTaskDone }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   const isCompleted = task.status === "Выполнена";
+  const hasMicroStep = Boolean(task.microStep && task.microStep.trim());
+  const hasDescription = Boolean(task.description && task.description.trim());
+
+  function stopClick(event) {
+    event.stopPropagation();
+  }
 
   return (
-    <div className={isCompleted ? "day-task-item completed" : "day-task-item"}>
-      <div className="day-task-main">
-        <h4>{task.title}</h4>
-        <p>{task.date}</p>
+    <article
+      className={
+        isCompleted
+          ? isExpanded
+            ? "calendar-mini-task completed expanded"
+            : "calendar-mini-task completed"
+          : isExpanded
+            ? "calendar-mini-task expanded"
+            : "calendar-mini-task"
+      }
+      onClick={() => setIsExpanded((current) => !current)}
+    >
+      <div className="calendar-mini-task-row">
+        <button
+          type="button"
+          className={
+            isCompleted
+              ? "calendar-mini-task-check done"
+              : "calendar-mini-task-check"
+          }
+          onClick={(event) => {
+            stopClick(event);
+            markTaskDone(task.id);
+          }}
+          title="Отметить как выполнено"
+        >
+          {isCompleted ? "✓" : ""}
+        </button>
 
-        <div className="badges">
-          <Badge type={getStatusType(task.status)}>{task.status}</Badge>
+        <div className="calendar-mini-task-content">
+          <div className="calendar-mini-task-title">
+            <h4>{task.title}</h4>
+            <PriorityIndicator priority={task.priority} />
+          </div>
+
+          <div className="calendar-mini-task-meta">
+            <span>{task.date || "Без срока"}</span>
+
+            {task.groupName && (
+              <span
+                className="calendar-mini-task-group"
+                style={{
+                  "--task-group-color": task.groupColor || "#E6F8FA",
+                }}
+              >
+                {task.groupName}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-
-      <div className="day-task-actions">
-        {!isCompleted && (
-          <button
-            type="button"
-            className="day-task-complete"
-            onClick={() => markTaskDone(task.id)}
-            title="Завершить задачу"
-          >
-            ✓
-          </button>
-        )}
 
         <button
           type="button"
-          className="day-task-delete"
-          onClick={() => deleteTask(task.id)}
+          className="calendar-mini-task-delete"
+          onClick={(event) => {
+            stopClick(event);
+            deleteTask(task.id);
+          }}
           title="Удалить задачу"
         >
           ×
         </button>
       </div>
-    </div>
+
+      {isExpanded && (
+        <div className="calendar-mini-task-expanded">
+          {hasMicroStep && (
+            <div className="calendar-mini-task-micro">
+              <span>Микро-шаг</span>
+              <p>{task.microStep}</p>
+            </div>
+          )}
+
+          {hasDescription && (
+            <p className="calendar-mini-task-description">
+              {task.description}
+            </p>
+          )}
+
+          {!hasMicroStep && !hasDescription && (
+            <p className="calendar-mini-task-description muted">
+              Описание не добавлено
+            </p>
+          )}
+        </div>
+      )}
+    </article>
   );
 }
 
-function WorkoutsPage({ tasks, openWorkoutModal, markWorkoutExerciseDone }) {
+function WorkoutsPage({
+  tasks,
+  openWorkoutModal,
+  markWorkoutExerciseDone,
+  muscleGroups,
+  availableExercises,
+  compatibleGroups,
+}) {
   const workouts = tasks.filter((task) => task.category === "Тренировка");
 
+  const exercises = Array.isArray(availableExercises)
+    ? availableExercises
+    : [];
+
+  const muscles = Array.isArray(muscleGroups)
+    ? muscleGroups
+    : [];
+
+  const muscleNames = muscles.map((muscle) => muscle.name);
+
+  const exercisesByMuscle = muscleNames.reduce((result, muscleName) => {
+    result[muscleName] = exercises.filter((exercise) => {
+      const exerciseMuscle = exercise.muscle || exercise.muscle_group || "";
+      return exerciseMuscle === muscleName;
+    });
+
+    return result;
+  }, {});
+
+  const defaultMuscle = muscleNames[0] || "";
+
+  const [selectedMuscles, setSelectedMuscles] = useState(
+    defaultMuscle ? [defaultMuscle] : []
+  );
+
+  const [plannedExercises, setPlannedExercises] = useState([]);
+
+  const [isWorkoutBuilderOpen, setIsWorkoutBuilderOpen] = useState(false);
+
+function formatExerciseDifficulty(value) {
+  const normalizedValue = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    normalizedValue === "easy" ||
+    normalizedValue === "low" ||
+    normalizedValue === "низкая" ||
+    normalizedValue === "легко" ||
+    normalizedValue === "новичок"
+  ) {
+    return "Низкая";
+  }
+
+  if (
+    normalizedValue === "hard" ||
+    normalizedValue === "high" ||
+    normalizedValue === "сложная" ||
+    normalizedValue === "высокая" ||
+    normalizedValue === "тяжело"
+  ) {
+    return "Высокая";
+  }
+
+  return "Средняя";
+}
+
+function getCompatibleMuscleNames(muscleName) {
+  const items = Array.isArray(compatibleGroups) ? compatibleGroups : [];
+
+  return items
+    .filter((item) => {
+      const sourceMuscle =
+        item.muscle ||
+        item.muscle_name ||
+        item.main_muscle ||
+        item.source_muscle ||
+        item.group_name ||
+        item.name;
+
+      return sourceMuscle === muscleName;
+    })
+    .map((item) => {
+      return (
+        item.compatible_muscle ||
+        item.compatible_muscle_name ||
+        item.compatible_group ||
+        item.compatible_group_name ||
+        item.related_muscle ||
+        item.target_muscle ||
+        item.name_compatible
+      );
+    })
+    .filter(Boolean);
+}
+
+const selectedExercises = selectedMuscles.flatMap((muscle) =>
+  (exercisesByMuscle[muscle] || []).map((exercise) => ({
+    id: exercise.id,
+    name: exercise.name,
+    muscle: exercise.muscle || exercise.muscle_group || muscle,
+    sets: exercise.sets || exercise.sets_count || 3,
+    reps: exercise.reps || exercise.reps_count || 10,
+    difficulty: formatExerciseDifficulty(
+      exercise.difficulty || exercise.difficulty_level || exercise.level
+    ),
+  }))
+);
+
+const mainMuscle = selectedMuscles[0];
+
+const recommendedMuscles = getCompatibleMuscleNames(mainMuscle).filter(
+  (muscle) => muscleNames.includes(muscle) && !selectedMuscles.includes(muscle)
+);
+
+  const todayString = new Date().toISOString().split("T")[0];
+
+  const todayWorkouts = workouts.filter((workout) => {
+    if (!workout.rawDate) return false;
+    return workout.rawDate.startsWith(todayString);
+  });
+
+  const completedWorkouts = workouts.filter(
+    (workout) => workout.status === "Выполнена"
+  );
+
+  const totalExercises = workouts.reduce((sum, workout) => {
+    return sum + (workout.exercises ? workout.exercises.length : 0);
+  }, 0);
+
+  const nextWorkout = todayWorkouts[0] || workouts[0];
+
+  function toggleMuscle(muscle) {
+    setSelectedMuscles((currentMuscles) => {
+      const isSelected = currentMuscles.includes(muscle);
+
+      if (isSelected && currentMuscles.length === 1) {
+        return currentMuscles;
+      }
+
+      if (isSelected) {
+        return currentMuscles.filter((item) => item !== muscle);
+      }
+
+      return [...currentMuscles, muscle];
+    });
+  }
+
+  function addExerciseToPlan(exercise) {
+    const isAlreadyAdded = plannedExercises.some(
+      (item) => item.id === exercise.id
+    );
+
+    if (isAlreadyAdded) {
+      return;
+    }
+
+    setPlannedExercises((currentExercises) => [...currentExercises, exercise]);
+  }
+
+  function removeExerciseFromPlan(exerciseId) {
+    setPlannedExercises((currentExercises) =>
+      currentExercises.filter((exercise) => exercise.id !== exerciseId)
+    );
+  }
+
+  function clearPlan() {
+    setPlannedExercises([]);
+  }
+
   return (
-    <section>
+    <section className="workouts-page">
       <PageHeader
         title="Тренировки"
-        subtitle="Планируйте повторяющиеся тренировки и отмечайте упражнения."
+        subtitle="Планируйте тренировки, собирайте упражнения и отслеживайте прогресс."
         actions={
           <button className="primary-btn" onClick={openWorkoutModal}>
             + Добавить тренировку
@@ -2893,20 +3405,345 @@ function WorkoutsPage({ tasks, openWorkoutModal, markWorkoutExerciseDone }) {
         }
       />
 
+      <div className="workouts-hero">
+        <div className="workouts-today-card">
+          <span className="workouts-card-label">Сегодня</span>
+
+          {todayWorkouts.length > 0 ? (
+            <>
+              <h3>{todayWorkouts[0].title}</h3>
+
+              <p>
+                {todayWorkouts[0].muscle || "Тренировка"} ·{" "}
+                {(todayWorkouts[0].exercises || []).length} упражнений
+              </p>
+
+              <button
+                type="button"
+                className="workouts-start-btn"
+                onClick={openWorkoutModal}
+              >
+                Открыть тренировку
+              </button>
+            </>
+          ) : (
+            <>
+              <h3>Тренировки на сегодня нет</h3>
+
+              <p>
+                Можно собрать тренировку ниже или создать её через стандартную
+                форму.
+              </p>
+
+              <button
+                type="button"
+                className="workouts-start-btn"
+                onClick={openWorkoutModal}
+              >
+                Создать тренировку
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="workouts-stats-grid">
+          <div className="workouts-stat-card">
+            <span>Всего</span>
+            <strong>{workouts.length}</strong>
+            <p>тренировок</p>
+          </div>
+
+          <div className="workouts-stat-card">
+            <span>Готово</span>
+            <strong>{completedWorkouts.length}</strong>
+            <p>завершено</p>
+          </div>
+
+          <div className="workouts-stat-card">
+            <span>Упражнения</span>
+            <strong>{totalExercises}</strong>
+            <p>в плане</p>
+          </div>
+        </div>
+      </div>
+
+      <div
+  className={
+    isWorkoutBuilderOpen
+      ? "workout-builder workout-builder-open"
+      : "workout-builder"
+  }
+>
+  <button
+    type="button"
+    className="workout-builder-toggle"
+    onClick={() => setIsWorkoutBuilderOpen((current) => !current)}
+  >
+    <div>
+      <span>Конструктор</span>
+      <h3>Соберите тренировку</h3>
+      <p>
+        Выберите группы мышц, добавьте упражнения и сохраните готовый план.
+      </p>
+    </div>
+
+    <strong>{isWorkoutBuilderOpen ? "−" : "+"}</strong>
+  </button>
+
+  {isWorkoutBuilderOpen && (
+    <div className="workout-builder-body">
+      <div className="workout-builder-header">
+        <div>
+          <span>План тренировки</span>
+          <h3>{selectedMuscles.join(" + ")}</h3>
+        </div>
+
+        <button
+          type="button"
+          className="workout-builder-clear-btn"
+          onClick={clearPlan}
+          disabled={plannedExercises.length === 0}
+        >
+          Очистить
+        </button>
+      </div>
+
+      <div className="workout-builder-grid">
+          <div className="muscle-picker-card">
+            <div className="workout-block-title">
+              <span>Шаг 1</span>
+              <h4>Группы мышц</h4>
+            </div>
+
+            <div className="muscle-grid">
+              {muscleNames.map((muscle) => (
+                <button
+                  type="button"
+                  key={muscle}
+                  className={
+                    selectedMuscles.includes(muscle)
+                      ? "muscle-card active"
+                      : "muscle-card"
+                  }
+                  onClick={() => toggleMuscle(muscle)}
+                >
+                  <strong>{muscle}</strong>
+                  <span>{(exercisesByMuscle[muscle] || []).length} упражнений</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="compatible-muscles">
+  <span>Хорошо сочетается:</span>
+
+  {recommendedMuscles.length === 0 ? (
+    <p className="compatible-empty">
+      Для выбранной группы пока нет рекомендаций.
+    </p>
+  ) : (
+    <div>
+      {recommendedMuscles.map((muscle) => (
+        <button
+          type="button"
+          key={muscle}
+          className={
+            selectedMuscles.includes(muscle)
+              ? "compatible-chip active"
+              : "compatible-chip"
+          }
+          onClick={() => toggleMuscle(muscle)}
+        >
+          {muscle}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
+          </div>
+
+          <div className="exercise-library-card">
+            <div className="workout-block-title">
+              <span>Шаг 2</span>
+              <h4>Упражнения</h4>
+            </div>
+
+            <div className="exercise-list">
+              {selectedExercises.map((exercise) => {
+                const isAdded = plannedExercises.some(
+                  (item) => item.id === exercise.id
+                );
+
+                return (
+                  <article className="exercise-card" key={exercise.id}>
+                    <div>
+                      <span>{exercise.muscle}</span>
+                      <h4>{exercise.name}</h4>
+
+                      <p>
+                        {exercise.sets} подхода · {exercise.reps} повторений
+                      </p>
+                    </div>
+
+                    <div className="exercise-card-actions">
+                      <span className="exercise-difficulty">
+                        {exercise.difficulty}
+                      </span>
+
+                      <button
+                        type="button"
+                        className={
+                          isAdded
+                            ? "exercise-add-btn added"
+                            : "exercise-add-btn"
+                        }
+                        onClick={() => addExerciseToPlan(exercise)}
+                        disabled={isAdded}
+                      >
+                        {isAdded ? "Добавлено" : "+"}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+
+          <aside className="current-workout-card">
+            <div className="workout-block-title">
+              <span>Шаг 3</span>
+              <h4>Моя тренировка</h4>
+            </div>
+
+            <div className="current-workout-summary">
+              <strong>{selectedMuscles.join(" + ")}</strong>
+              <p>{plannedExercises.length} упражнений в плане</p>
+            </div>
+
+            {plannedExercises.length === 0 ? (
+              <div className="current-workout-empty">
+                <span>+</span>
+                <p>Добавьте упражнения из списка слева.</p>
+              </div>
+            ) : (
+              <div className="current-workout-list">
+                {plannedExercises.map((exercise, index) => (
+                  <div className="current-workout-item" key={exercise.id}>
+                    <span>{index + 1}</span>
+
+                    <div>
+                      <strong>{exercise.name}</strong>
+                      <p>
+                        {exercise.sets} × {exercise.reps}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeExerciseFromPlan(exercise.id)}
+                      aria-label="Удалить упражнение"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+            type="button"
+            className="current-workout-save-btn"
+            disabled={plannedExercises.length === 0}
+            onClick={() =>
+              openWorkoutModal({
+                title: `Тренировка: ${selectedMuscles.join(" + ")}`,
+                muscle_groups: selectedMuscles,
+                exercises: plannedExercises.map((exercise) => ({
+                  id: exercise.id,
+                  name: exercise.name,
+                  muscle: exercise.muscle,
+                })),
+              })
+            }
+          >
+            Сохранить тренировку
+          </button>
+          </aside>
+        </div>
+    </div>
+  )}
+</div>
+
       {workouts.length === 0 ? (
-        <div className="empty-state">
-          <h3>Тренировок пока нет</h3>
-          <p>Создайте первую тренировку и выберите упражнения.</p>
+        <div className="workouts-empty">
+          <div className="workouts-empty-icon">+</div>
+
+          <h3>Создайте первую тренировку</h3>
+
+          <p>
+            Выберите группу мышц, добавьте упражнения и сохраните тренировку в
+            свой план.
+          </p>
+
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={openWorkoutModal}
+          >
+            Создать тренировку
+          </button>
         </div>
       ) : (
-        <div className="tasks-grid">
-          {workouts.map((workout) => (
-            <WorkoutCard
-              key={workout.id}
-              workout={workout}
-              markWorkoutExerciseDone={markWorkoutExerciseDone}
-            />
-          ))}
+        <div className="workouts-content-grid">
+          <div className="workouts-section-card">
+            <div className="workouts-section-header">
+              <div>
+                <span>План</span>
+                <h3>Мои тренировки</h3>
+              </div>
+            </div>
+
+            <div className="tasks-grid workouts-grid">
+              {workouts.map((workout) => (
+                <WorkoutCard
+                  key={workout.id}
+                  workout={workout}
+                  markWorkoutExerciseDone={markWorkoutExerciseDone}
+                />
+              ))}
+            </div>
+          </div>
+
+          <aside className="workouts-side-card">
+            <span className="workouts-card-label">Ближайшая</span>
+
+            {nextWorkout ? (
+              <>
+                <h3>{nextWorkout.title}</h3>
+
+                <p>
+                  {nextWorkout.date || "Без даты"} ·{" "}
+                  {(nextWorkout.exercises || []).length} упражнений
+                </p>
+
+                <div className="workouts-mini-list">
+                  {(nextWorkout.exercises || [])
+                    .slice(0, 4)
+                    .map((exercise, index) => (
+                      <div className="workouts-mini-exercise" key={index}>
+                        <span>{index + 1}</span>
+                        <p>
+                          {typeof exercise === "string"
+                            ? exercise
+                            : exercise.name || exercise.title}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </>
+            ) : (
+              <p>Пока нет запланированных тренировок.</p>
+            )}
+          </aside>
         </div>
       )}
     </section>
@@ -3136,6 +3973,32 @@ function HeaderProgressBar({ total, completed }) {
       </div>
 
       <span className="header-progress-percent">{percent}%</span>
+    </div>
+  );
+}
+
+function DayPanelProgressBar({ total, completed }) {
+  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+
+  return (
+    <div className="day-panel-progress-card" title="Прогресс дня">
+      <div className="day-panel-progress-top">
+        <span>Прогресс дня</span>
+        <strong>
+          {completed}/{total}
+        </strong>
+      </div>
+
+      <div className="day-panel-progress-track">
+        <div
+          className="day-panel-progress-fill"
+          style={{
+            width: `${percent}%`,
+          }}
+        />
+      </div>
+
+      <span className="day-panel-progress-percent">{percent}%</span>
     </div>
   );
 }

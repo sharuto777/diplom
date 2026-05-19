@@ -20,7 +20,9 @@ const groupColors = [
 const menuItems = [
   "Задачи",
   "Календарь",
-  "Тренировки",
+  "Рабочие веса",
+  "Гайды",
+  "Моя тренировка",
   "Статистика",
   "Профиль",
 ];
@@ -53,6 +55,37 @@ const menuIcons = {
       <path d="M19 9V15" />
     </svg>
   ),
+
+  "Рабочие веса": (
+  <svg viewBox="0 0 24 24" className="menu-icon-svg">
+    <path d="M7 8V16" />
+    <path d="M17 8V16" />
+    <path d="M3 10V14" />
+    <path d="M21 10V14" />
+    <path d="M7 12H17" />
+  </svg>
+),
+
+Гайды: (
+  <svg viewBox="0 0 24 24" className="menu-icon-svg">
+    <path d="M5 5H19V19H5Z" />
+    <path d="M8 9H16" />
+    <path d="M8 13H14" />
+    <path d="M8 17H12" />
+  </svg>
+),
+
+"Моя тренировка": (
+  <svg viewBox="0 0 24 24" className="menu-icon-svg">
+    <path d="M7 4V20" />
+    <path d="M17 4V20" />
+    <path d="M4 8H7" />
+    <path d="M17 8H20" />
+    <path d="M4 16H7" />
+    <path d="M17 16H20" />
+    <path d="M7 12H17" />
+  </svg>
+),
 
   Статистика: (
     <svg viewBox="0 0 24 24" className="menu-icon-svg">
@@ -106,10 +139,8 @@ function App() {
 
   const [muscleGroups, setMuscleGroups] = useState([]);
   const [availableExercises, setAvailableExercises] = useState([]);
+  const [exerciseGroups, setExerciseGroups] = useState([]);
   const [compatibleGroups, setCompatibleGroups] = useState([]);
-
-  const [isFocusModeOpen, setIsFocusModeOpen] = useState(false);
-  const [focusTask, setFocusTask] = useState(null);
 
   const [workingWeights, setWorkingWeights] = useState([]);
 
@@ -220,10 +251,15 @@ function checkAuth(token) {
       setCurrentUser(data.user);
       setSubscription(data.subscription);
       setIsLoggedIn(true);
+      setAvailableExercises([]);
+setExerciseGroups([]);
+setWorkingWeights([]);
 
       loadTasks(token);
       loadTaskGroups(token);
       loadExerciseMetrics(token);
+      loadExerciseGroups(token);
+      loadExercises(token);
     })
     .catch((error) => {
       console.error("Ошибка проверки авторизации:", error);
@@ -262,6 +298,9 @@ function registerUser(formData) {
       setCurrentUser(data.user);
       setSubscription(data.subscription);
       setIsLoggedIn(true);
+      setAvailableExercises([]);
+setExerciseGroups([]);
+setWorkingWeights([]);
 
       loadTasks(data.token);
       loadTaskGroups(data.token);
@@ -326,10 +365,15 @@ function loginUser(formData) {
       setCurrentUser(data.user);
       setSubscription(data.subscription);
       setIsLoggedIn(true);
+      setAvailableExercises([]);
+setExerciseGroups([]);
+setWorkingWeights([]);
 
       loadTasks(data.token);
       loadTaskGroups(data.token);
       loadExerciseMetrics(data.token);
+      loadExerciseGroups(data.token);
+      loadExerciseGroups(data.token);
     })
     .catch((error) => {
       console.error("Ошибка входа:", error);
@@ -349,6 +393,9 @@ function logout() {
   setTaskGroups([]);
   setWorkingWeights([]);
   setActivePage("Задачи");
+  setAvailableExercises([]);
+setExerciseGroups([]);
+setWorkingWeights([]);
 }
 
   function loadMuscleGroups() {
@@ -362,21 +409,75 @@ function logout() {
       });
   }
 
-  function loadExercises() {
+ function loadExercises(token = localStorage.getItem("token")) {
   fetch(`${API_URL}/exercises`)
     .then((response) => response.json())
-    .then((data) => {
-      if (!Array.isArray(data)) {
-        console.error("Ошибка загрузки упражнений:", data);
+    .then((baseExercises) => {
+      if (!Array.isArray(baseExercises)) {
+        console.error("Ошибка загрузки базовых упражнений:", baseExercises);
         setAvailableExercises([]);
         return;
       }
 
-      setAvailableExercises(data);
+      if (!token || currentUser?.is_guest) {
+        setAvailableExercises(baseExercises);
+        return;
+      }
+
+      fetch(`${API_URL}/user-exercises`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+        .then((response) => response.json())
+        .then((userExercises) => {
+          if (!Array.isArray(userExercises)) {
+            console.error(
+              "Ошибка загрузки пользовательских упражнений:",
+              userExercises
+            );
+
+            setAvailableExercises(baseExercises);
+            return;
+          }
+
+          setAvailableExercises([...baseExercises, ...userExercises]);
+        })
+        .catch((error) => {
+          console.error("Ошибка загрузки пользовательских упражнений:", error);
+          setAvailableExercises(baseExercises);
+        });
     })
     .catch((error) => {
       console.error("Ошибка загрузки упражнений:", error);
       setAvailableExercises([]);
+    });
+}
+function loadUserExercises(token = localStorage.getItem("token")) {
+  if (!token || currentUser?.is_guest) {
+    return;
+  }
+
+  fetch(`${API_URL}/user-exercises`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (!Array.isArray(data)) {
+        console.error("Ошибка загрузки пользовательских упражнений:", data);
+        return;
+      }
+
+      setAvailableExercises((current) => {
+        const constExercises = current.filter((exercise) => !exercise.is_custom);
+
+        return [...constExercises, ...data];
+      });
+    })
+    .catch((error) => {
+      console.error("Ошибка загрузки пользовательских упражнений:", error);
     });
 }
 
@@ -428,18 +529,13 @@ function loadExerciseMetrics(token = localStorage.getItem("token")) {
     });
 }
 
-  function loadTasks(token = localStorage.getItem("token")) {
-  if (!token) {
-    return;
-  }
-
-  function loadExerciseMetrics(token = localStorage.getItem("token")) {
+function loadExerciseGroups(token = localStorage.getItem("token")) {
   if (!token || currentUser?.is_guest) {
-    setWorkingWeights([]);
+    setExerciseGroups([]);
     return;
   }
 
-  fetch(`${API_URL}/exercise-metrics`, {
+  fetch(`${API_URL}/exercise-groups`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -447,18 +543,22 @@ function loadExerciseMetrics(token = localStorage.getItem("token")) {
     .then((response) => response.json())
     .then((data) => {
       if (!Array.isArray(data)) {
-        console.error("Ошибка загрузки рабочих показателей:", data);
-        setWorkingWeights([]);
+        setExerciseGroups([]);
         return;
       }
 
-      setWorkingWeights(data);
+      setExerciseGroups(data);
     })
     .catch((error) => {
-      console.error("Ошибка загрузки рабочих показателей:", error);
-      setWorkingWeights([]);
+      console.error("Ошибка загрузки групп упражнений:", error);
+      setExerciseGroups([]);
     });
 }
+
+  function loadTasks(token = localStorage.getItem("token")) {
+  if (!token) {
+    return;
+  }
 
   fetch(`${API_URL}/tasks`, {
     headers: {
@@ -825,7 +925,7 @@ function createTask(formData) {
 
       loadTasks(token);
       setIsWorkoutModalOpen(false);
-      setActivePage("Тренировки");
+      setActivePage("Моя тренировка");
     })
     .catch((error) => {
       console.error("Ошибка создания тренировки:", error);
@@ -851,22 +951,45 @@ function createTask(formData) {
           />
         );
 
-      case "Тренировки":
-        return (
-          <WorkoutsPage
-            tasks={tasks}
-            openWorkoutModal={(initialData = null) => {
-              setWorkoutModalInitialData(initialData);
-              setIsWorkoutModalOpen(true);
-            }}
-            markWorkoutExerciseDone={markWorkoutExerciseDone}
-            muscleGroups={muscleGroups}
-            availableExercises={availableExercises}
-            compatibleGroups={compatibleGroups}
-            workingWeights={workingWeights}
-            setWorkingWeights={setWorkingWeights}
-          />
-        );
+      case "Рабочие веса":
+  return (
+    <WorkoutsPage
+    exerciseGroups={exerciseGroups}
+setExerciseGroups={setExerciseGroups}
+      activeSectionFromMenu="weights"
+      tasks={tasks}
+      availableExercises={availableExercises}
+      setAvailableExercises={setAvailableExercises}
+      workingWeights={workingWeights}
+      setWorkingWeights={setWorkingWeights}
+    />
+  );
+
+case "Гайды":
+  return (
+    <WorkoutsPage
+    exerciseGroups={exerciseGroups}
+setExerciseGroups={setExerciseGroups}
+      activeSectionFromMenu="guides"
+      tasks={tasks}
+      availableExercises={availableExercises}
+      workingWeights={workingWeights}
+      setWorkingWeights={setWorkingWeights}
+    />
+  );
+
+case "Моя тренировка":
+  return (
+    <WorkoutsPage
+    exerciseGroups={exerciseGroups}
+setExerciseGroups={setExerciseGroups}
+      activeSectionFromMenu="plans"
+      tasks={tasks}
+      availableExercises={availableExercises}
+      workingWeights={workingWeights}
+      setWorkingWeights={setWorkingWeights}
+    />
+  );
 
       case "Статистика":
         return <StatsPage tasks={tasks} />;
@@ -903,7 +1026,6 @@ function createTask(formData) {
             setActiveTaskGroupId={setActiveTaskGroupId}
             openGroupModal={() => setIsGroupModalOpen(true)}
             deleteTaskGroup={deleteTaskGroup}
-            openFocusMode={(task) => setFocusTask(task)}
           />
         );
     }
@@ -995,210 +1117,10 @@ function createTask(formData) {
         onGuestLogin={loginAsGuest}
       />
     )}
-
-    {focusTask && (
-      <FocusMode
-        task={focusTask}
-        markTaskDone={markTaskDone}
-        onClose={() => setFocusTask(null)}
-      />
-    )}
     </div>
   );
 
   
-}
-
-function FocusMode({ task, markTaskDone, onClose }) {
-  const [focusMinutes, setFocusMinutes] = useState(25);
-  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-
-  useEffect(() => {
-    if (!isTimerRunning) {
-      return;
-    }
-
-    if (secondsLeft <= 0) {
-      setIsTimerRunning(false);
-      return;
-    }
-
-    const timerId = setInterval(() => {
-      setSecondsLeft((currentSeconds) => currentSeconds - 1);
-    }, 1000);
-
-    return () => clearInterval(timerId);
-  }, [isTimerRunning, secondsLeft]);
-
-  function formatTimer(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    return `${String(minutes).padStart(2, "0")}:${String(
-      remainingSeconds
-    ).padStart(2, "0")}`;
-  }
-
-  function getPrioritySymbols(priority) {
-    if (priority === "high" || priority === "Высокий") {
-      return "!!!";
-    }
-
-    if (priority === "medium" || priority === "Средний") {
-      return "!!";
-    }
-
-    return "!";
-  }
-
-  function changeFocusMinutes(value) {
-    const minutes = Number(value);
-
-    if (!minutes || minutes < 1) {
-      setFocusMinutes(1);
-      setSecondsLeft(60);
-      setIsTimerRunning(false);
-      return;
-    }
-
-    if (minutes > 180) {
-      setFocusMinutes(180);
-      setSecondsLeft(180 * 60);
-      setIsTimerRunning(false);
-      return;
-    }
-
-    setFocusMinutes(minutes);
-    setSecondsLeft(minutes * 60);
-    setIsTimerRunning(false);
-  }
-
-  function resetTimer() {
-    setSecondsLeft(focusMinutes * 60);
-    setIsTimerRunning(false);
-  }
-
-  function completeTask() {
-    markTaskDone(task.id);
-    onClose();
-  }
-
-  return (
-    <div className="focus-backdrop">
-      <div className="focus-mode">
-        <div className="focus-top">
-          <div>
-            <span className="focus-label">Режим концентрации</span>
-            <h2>Работайте только над одной задачей</h2>
-          </div>
-
-          <button type="button" className="focus-close-btn" onClick={onClose}>
-            ×
-          </button>
-        </div>
-
-        <div className="focus-time-control">
-          <span>Время фокуса</span>
-
-          <div className="focus-time-options">
-            {[15, 25, 45, 60].map((minutes) => (
-              <button
-                type="button"
-                key={minutes}
-                className={
-                  focusMinutes === minutes
-                    ? "focus-time-chip active"
-                    : "focus-time-chip"
-                }
-                onClick={() => changeFocusMinutes(minutes)}
-              >
-                {minutes} мин
-              </button>
-            ))}
-
-            <label className="focus-custom-time">
-              <input
-                type="number"
-                min="1"
-                max="180"
-                value={focusMinutes}
-                onChange={(event) => changeFocusMinutes(event.target.value)}
-              />
-              <span>мин</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="focus-timer-card">
-          <div className="focus-timer-ring">
-            <span>{formatTimer(secondsLeft)}</span>
-          </div>
-
-          <div className="focus-timer-actions">
-            <button
-              type="button"
-              className="focus-start-btn"
-              onClick={() => setIsTimerRunning((current) => !current)}
-            >
-              {isTimerRunning ? "Пауза" : "Старт"}
-            </button>
-
-            <button
-              type="button"
-              className="focus-secondary-btn"
-              onClick={resetTimer}
-            >
-              Сбросить
-            </button>
-          </div>
-        </div>
-
-        <div
-          className="focus-task-card"
-          style={{
-            "--task-group-color": task.groupColor || "#E6F8FA",
-          }}
-        >
-          <div className="focus-task-head">
-            <div>
-              <div className="focus-task-priority">
-                {getPrioritySymbols(task.priority)}
-              </div>
-
-              <h3>{task.title}</h3>
-            </div>
-
-            {task.groupName && (
-              <span className="focus-task-group">{task.groupName}</span>
-            )}
-          </div>
-
-          {task.description && (
-            <p className="focus-task-description">{task.description}</p>
-          )}
-
-          <div className="focus-task-meta">
-            <span>{task.date || "Без срока"}</span>
-          </div>
-        </div>
-
-        <div className="focus-bottom-actions">
-          <button
-            type="button"
-            className="focus-complete-btn"
-            onClick={completeTask}
-          >
-            Выполнить задачу
-          </button>
-
-          <button type="button" className="focus-secondary-btn" onClick={onClose}>
-            Выйти
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function AuthModal({ onLogin, onRegister, onGuestLogin }) {
@@ -1445,6 +1367,8 @@ function SocialLinks() {
 
 
 function TaskModal({ initialDate, onClose, onSubmit, isSaving }) {
+  const isDateLocked = Boolean(initialDate);
+
   const [hasDeadline, setHasDeadline] = useState(Boolean(initialDate));
   const [deadlineMode, setDeadlineMode] = useState(
     initialDate ? "custom" : "today"
@@ -1523,17 +1447,17 @@ function TaskModal({ initialDate, onClose, onSubmit, isSaving }) {
 
   const selectedDate = buildDateTime();
 
-  if (selectedDate) {
-    const taskDate = new Date(selectedDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    taskDate.setHours(0, 0, 0, 0);
+  if (selectedDate && !isDateLocked) {
+  const taskDate = new Date(selectedDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  taskDate.setHours(0, 0, 0, 0);
 
-    if (taskDate < today) {
-      alert("Нельзя создать задачу на прошедший день");
-      return;
-    }
+  if (taskDate < today) {
+    alert("Нельзя создать задачу на прошедший день");
+    return;
   }
+}
     onSubmit({
     title: trimmedTitle,
     description: form.description,
@@ -1646,82 +1570,99 @@ function TaskModal({ initialDate, onClose, onSubmit, isSaving }) {
   </div>
 </div>
 
-        <label className="deadline-toggle">
-          <input
-            type="checkbox"
-            checked={hasDeadline}
-            onChange={(event) => setHasDeadline(event.target.checked)}
-          />
-          <span>Добавить время выполнения</span>
-        </label>
+        {isDateLocked ? (
+  <div className="deadline-box locked-date-box calendar-task-time-only">
+    <label className="field">
+      <span>Время</span>
+      <input
+        type="time"
+        value={form.selected_time}
+        onChange={(event) =>
+          updateField("selected_time", event.target.value)
+        }
+      />
+    </label>
+  </div>
+) : (
+  <>
+    <label className="deadline-toggle">
+      <input
+        type="checkbox"
+        checked={hasDeadline}
+        onChange={(event) => setHasDeadline(event.target.checked)}
+      />
+      <span>Добавить время выполнения</span>
+    </label>
 
-        {hasDeadline && (
-          <div className="deadline-box">
-            <div className="deadline-options">
-              <button
-                type="button"
-                className={
-                  deadlineMode === "today"
-                    ? "deadline-option active"
-                    : "deadline-option"
-                }
-                onClick={() => setDeadlineMode("today")}
-              >
-                Сегодня
-              </button>
+    {hasDeadline && (
+      <div className="deadline-box">
+        <div className="deadline-options">
+          <button
+            type="button"
+            className={
+              deadlineMode === "today"
+                ? "deadline-option active"
+                : "deadline-option"
+            }
+            onClick={() => setDeadlineMode("today")}
+          >
+            Сегодня
+          </button>
 
-              <button
-                type="button"
-                className={
-                  deadlineMode === "tomorrow"
-                    ? "deadline-option active"
-                    : "deadline-option"
-                }
-                onClick={() => setDeadlineMode("tomorrow")}
-              >
-                Завтра
-              </button>
+          <button
+            type="button"
+            className={
+              deadlineMode === "tomorrow"
+                ? "deadline-option active"
+                : "deadline-option"
+            }
+            onClick={() => setDeadlineMode("tomorrow")}
+          >
+            Завтра
+          </button>
 
-              <button
-                type="button"
-                className={
-                  deadlineMode === "custom"
-                    ? "deadline-option active"
-                    : "deadline-option"
-                }
-                onClick={() => setDeadlineMode("custom")}
-              >
-                Выбрать день
-              </button>
-            </div>
+          <button
+            type="button"
+            className={
+              deadlineMode === "custom"
+                ? "deadline-option active"
+                : "deadline-option"
+            }
+            onClick={() => setDeadlineMode("custom")}
+          >
+            Выбрать день
+          </button>
+        </div>
 
-            {deadlineMode === "custom" && (
-              <label className="field">
-                <span>Дата</span>
-                <input
-                  type="date"
-                  min={todayString}
-                  value={form.selected_date}
-                  onChange={(event) =>
-                    updateField("selected_date", event.target.value)
-                  }
-                  required={hasDeadline && deadlineMode === "custom"}
-                />
-              </label>
-            )}
-
-            <label className="field">
-              <span>Время</span>
-              <input
-                type="time"
-                value={form.selected_time}
-                onChange={(event) =>
-                  updateField("selected_time", event.target.value)
-                }
-              />
-            </label>
-          </div>
+        {deadlineMode === "custom" && (
+          <label className="field">
+            <span>Дата</span>
+            <input
+              type="date"
+              min={todayString}
+              value={form.selected_date}
+              onChange={(event) =>
+                updateField("selected_date", event.target.value)
+              }
+              required={hasDeadline && deadlineMode === "custom"}
+            />
+          </label>
         )}
+
+        <label className="field">
+          <span>Время</span>
+          <input
+            type="time"
+            value={form.selected_time}
+            onChange={(event) =>
+              updateField("selected_time", event.target.value)
+            }
+          />
+        </label>
+      </div>
+    )}
+  </>
+)}
 
         <button className="primary-btn full" type="submit" disabled={isSaving}>
           {isSaving ? "Сохранение..." : "Сохранить задачу"}
@@ -2010,11 +1951,15 @@ function Sidebar({
   const navGroups = [
   {
     title: "Планирование",
-    items: ["Задачи", "Календарь", "Тренировки", "Статистика"],
+    items: ["Задачи", "Календарь"],
+  },
+  {
+    title: "Тренировки",
+    items: ["Рабочие веса", "Гайды", "Моя тренировка"],
   },
   {
     title: "Аккаунт",
-    items: ["Профиль"],
+    items: ["Статистика", "Профиль"],
   },
 ];
 
@@ -2220,7 +2165,6 @@ function TasksPage({
   activeTaskGroupId,
   setActiveTaskGroupId,
   openGroupModal,
-  openFocusMode,
   deleteTaskGroup,
 }) {
   const regularTasks = tasks.filter((task) => task.category !== "Тренировка");
@@ -2387,7 +2331,6 @@ const inProgress = regularTasks.filter(
             markTaskDone={markTaskDone}
             markWorkoutExerciseDone={markWorkoutExerciseDone}
             deleteTask={deleteTask}
-            openFocusMode={openFocusMode}
           />
         ))}
       </div>
@@ -2408,7 +2351,6 @@ const inProgress = regularTasks.filter(
               markTaskDone={markTaskDone}
               markWorkoutExerciseDone={markWorkoutExerciseDone}
               deleteTask={deleteTask}
-              openFocusMode={openFocusMode}
             />
           ))}
         </div>
@@ -2588,7 +2530,6 @@ function TaskCard({
   markTaskDone,
   markWorkoutExerciseDone,
   deleteTask,
-  openFocusMode,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -2668,15 +2609,6 @@ function TaskCard({
         </div>
 
         <div className="task-actions" onClick={stopClick}>
-          <button
-            type="button"
-            className="task-focus-btn"
-            title="Режим концентрации"
-            onClick={() => openFocusMode(task)}
-          >
-            ◎
-          </button>
-
           <button
             type="button"
             className="dots delete-btn"
@@ -2795,6 +2727,100 @@ function CalendarPage({ tasks, deleteTask, markTaskDone, openTaskModal }) {
   return savedNotes ? JSON.parse(savedNotes) : {};
 });
 
+const [dayImportance, setDayImportance] = useState(() => {
+  const savedImportance = localStorage.getItem("dayImportance");
+
+  return savedImportance ? JSON.parse(savedImportance) : {};
+});
+const [holidayDates, setHolidayDates] = useState({});
+useEffect(() => {
+  const year = visibleDate.getFullYear();
+  const token = localStorage.getItem("token");
+
+  fetch(`${API_URL}/calendar/${year}/holidays`, {
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {},
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      const preparedDates = {};
+
+      if (Array.isArray(data?.days)) {
+        data.days.forEach((day) => {
+          const rawDate = day.date || day.day || day.value || day;
+
+          if (!rawDate) {
+            return;
+          }
+
+          const date = String(rawDate).slice(0, 10);
+          preparedDates[date] = true;
+        });
+      }
+
+      if (Array.isArray(data?.months)) {
+        data.months.forEach((monthInfo) => {
+          const monthIndex = monthInfo.id;
+          const neededNotWorkingDays = Number(monthInfo.notWorkingDays || 0);
+
+          if (!Number.isInteger(monthIndex) || neededNotWorkingDays <= 0) {
+            return;
+          }
+
+          const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+          const monthDates = [];
+
+          for (let day = 1; day <= daysInMonth; day += 1) {
+            const date = new Date(year, monthIndex, day);
+            const dayOfWeek = date.getDay();
+            const dateKey = getDateString(date);
+
+            monthDates.push({
+              date,
+              dateKey,
+              isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+            });
+          }
+
+          const weekendDates = monthDates.filter((item) => item.isWeekend);
+
+          weekendDates.forEach((item) => {
+            preparedDates[item.dateKey] = true;
+          });
+
+          const extraHolidayCount =
+            neededNotWorkingDays - weekendDates.length;
+
+          if (extraHolidayCount <= 0) {
+            return;
+          }
+
+          monthDates
+            .filter((item) => !item.isWeekend)
+            .slice(0, extraHolidayCount)
+            .forEach((item) => {
+              preparedDates[item.dateKey] = true;
+            });
+        });
+      }
+
+      setHolidayDates((current) => ({
+        ...current,
+        [year]: preparedDates,
+      }));
+    })
+    .catch((error) => {
+      console.error("Ошибка загрузки праздничных и выходных дней:", error);
+    });
+}, [visibleDate]);
+
+useEffect(() => {
+  localStorage.setItem("dayImportance", JSON.stringify(dayImportance));
+}, [dayImportance]);
+
   const currentYear = visibleDate.getFullYear();
   const currentMonth = visibleDate.getMonth();
 
@@ -2819,6 +2845,9 @@ function CalendarPage({ tasks, deleteTask, markTaskDone, openTaskModal }) {
   const selectedDateKey = getDateString(selectedDate);
   const selectedDayNote = dayNotes[selectedDateKey] || "";
   const selectedDateIsPast = isPastDate(selectedDate);
+
+  const canAddTaskToSelectedDate = !selectedDateIsPast && !isTooOldDate(selectedDate);
+const shouldShowDayProgress = !selectedDateIsPast && selectedTasks.length > 0;
 
   
 
@@ -2959,8 +2988,27 @@ useEffect(() => {
 }
 
   function isPastDate(date) {
-    return date < today;
-  }
+  return date < today;
+}
+
+function isTooOldDate(date) {
+  const minDate = new Date(today);
+  minDate.setMonth(today.getMonth() - 1);
+  minDate.setHours(0, 0, 0, 0);
+
+  return date < minDate;
+}
+
+function isWeekendDate(date) {
+  const dayOfWeek = date.getDay();
+  const isRegularWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  const year = date.getFullYear();
+  const dateKey = getDateString(date);
+  const isHolidayFromApi = Boolean(holidayDates[year]?.[dateKey]);
+
+  return isRegularWeekend || isHolidayFromApi;
+}
 
   function isTodayDate(date) {
     return date.getTime() === today.getTime();
@@ -2989,9 +3037,9 @@ useEffect(() => {
 
   const date = getCellDate(day, monthDate);
 
-  if (isPastDate(date)) {
-    return;
-  }
+  if (isTooOldDate(date)) {
+  return;
+}
 
   const isSameDay = date.getTime() === selectedDate.getTime();
 
@@ -3022,21 +3070,59 @@ useEffect(() => {
     </div>
   </div>
 
-  {!selectedDateIsPast && (
-    <button
-      className="day-panel-add-btn"
-      type="button"
-      onClick={() => openTaskModal(getDateString(selectedDate))}
-    >
-      + Задача
-    </button>
-  )}
+  <div className="day-panel-actions">
+    <div className="day-importance-inline">
+      {[
+        { value: "normal", label: "!" },
+        { value: "yellow", label: "!!" },
+        { value: "red", label: "!!!" },
+      ].map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          className={
+            dayImportance[selectedDateKey] === item.value
+              ? `day-importance-mini ${item.value} active`
+              : `day-importance-mini ${item.value}`
+          }
+          onClick={() =>
+            setDayImportance((current) => ({
+              ...current,
+              [selectedDateKey]:
+                current[selectedDateKey] === item.value ? null : item.value,
+            }))
+          }
+          title={
+            item.value === "normal"
+              ? "Обычная важность"
+              : item.value === "yellow"
+                ? "Повышенная важность"
+                : "Высокая важность"
+          }
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+
+    {canAddTaskToSelectedDate && (
+  <button
+    className="day-panel-add-btn"
+    type="button"
+    onClick={() => openTaskModal(getDateString(selectedDate))}
+  >
+    + Задача
+  </button>
+)}
+  </div>
 </div>
 
-<DayPanelProgressBar
-  total={selectedTasks.length}
-  completed={selectedCompletedTasks}
-/>
+{shouldShowDayProgress && (
+  <DayPanelProgressBar
+    total={selectedTasks.length}
+    completed={selectedCompletedTasks}
+  />
+)}
 
 <div className="day-note-card">
   <div className="day-note-header">
@@ -3056,32 +3142,29 @@ useEffect(() => {
 </div>
         <div className="day-tasks-list">
           {selectedTasks.length === 0 ? (
-  <button
-    type="button"
-    className="day-empty day-empty-beauty"
-    onClick={() => {
-      if (!selectedDateIsPast) {
-        openTaskModal(getDateString(selectedDate));
-      }
-    }}
-    disabled={selectedDateIsPast}
-  >
-    <span className="day-empty-icon">+</span>
+  canAddTaskToSelectedDate ? (
+    <button
+      type="button"
+      className="day-empty day-empty-beauty"
+      onClick={() => openTaskModal(getDateString(selectedDate))}
+    >
+      <span className="day-empty-icon">+</span>
 
-    <strong>
-      {selectedDateIsPast ? "День уже прошёл" : "День свободен"}
-    </strong>
+      <strong>День свободен</strong>
 
-    <p>
-      {selectedDateIsPast
-        ? "На этот день задач не было."
-        : "Можно оставить его для отдыха или запланировать что-то полезное."}
-    </p>
+      <p>
+        Можно оставить его для отдыха или запланировать что-то полезное.
+      </p>
 
-    {!selectedDateIsPast && (
       <span className="day-empty-action">Запланировать день</span>
-    )}
-  </button>
+    </button>
+  ) : (
+    <div className="day-empty day-empty-beauty day-empty-readonly">
+      <strong>День уже прошёл</strong>
+
+      <p>На этот день задач не было.</p>
+    </div>
+  )
 ) : (
   selectedTasks.map((task) => (
     <CalendarTaskItem
@@ -3134,15 +3217,23 @@ function renderCalendarGrid(monthDate, extraClassName = "") {
         const cellDate = getCellDate(day, monthDate);
         const dayTasks = getTasksForDate(cellDate);
         const past = isPastDate(cellDate);
+        const tooOld = isTooOldDate(cellDate);
+        const weekend = isWeekendDate(cellDate);
         const currentToday = isTodayDate(cellDate);
         const selected = isSelectedDate(cellDate);
+        const importance = dayImportance[getDateString(cellDate)];
 
         const dayClassName = [
           "calendar-day",
           selected ? "selected" : "",
           past ? "past" : "",
+          tooOld ? "too-old" : "",
+          weekend ? "weekend" : "",
           currentToday ? "today" : "",
           dayTasks.length > 0 ? "has-tasks" : "",
+          importance === "normal" ? "important-normal" : "",
+          importance === "yellow" ? "important-yellow" : "",
+          importance === "red" ? "important-red" : "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -3153,11 +3244,11 @@ function renderCalendarGrid(monthDate, extraClassName = "") {
   type="button"
   className={dayClassName}
   onClick={() => {
-    if (!past) {
+    if (!tooOld) {
       selectDay(day, monthDate);
     }
   }}
-  disabled={past}
+  disabled={tooOld}
 >
   <div className="calendar-day-top">
   <strong>{day}</strong>
@@ -3169,18 +3260,14 @@ function renderCalendarGrid(monthDate, extraClassName = "") {
   )}
 </div>
 </button>
-
-            {selected && isMobileDayPanelOpen && !previousVisibleDate && (
-              <div className="day-panel mobile-inline-day-panel">
-                {renderDayPanelContent()}
-              </div>
-            )}
           </React.Fragment>
         );
       })}
     </div>
   );
 }
+
+
 
   return (
     <section>
@@ -3190,101 +3277,107 @@ function renderCalendarGrid(monthDate, extraClassName = "") {
       />
 
       <div className="calendar-page-layout">
-        <div className="calendar-left">
-          <div className="calendar-header">
-  <button
-    type="button"
-    className="calendar-nav-btn"
-    onClick={goToPreviousMonth}
-    disabled={isPastMonth(
-      new Date(visibleDate.getFullYear(), visibleDate.getMonth() - 1, 1)
-    )}
-    aria-label="Предыдущий месяц"
-  >
-    {"<"}
-  </button>
-
-  <div className="calendar-title">
-    <h3>
+  <div className="calendar-left">
+    <div className="calendar-header">
       <button
         type="button"
-        className="calendar-month-name-btn"
-        onClick={() => setIsMonthPickerOpen((current) => !current)}
-        title="Выбрать месяц"
+        className="calendar-nav-btn"
+        onClick={goToPreviousMonth}
+        disabled={isPastMonth(
+          new Date(visibleDate.getFullYear(), visibleDate.getMonth() - 1, 1)
+        )}
+        aria-label="Предыдущий месяц"
       >
-        {capitalizeFirstLetter(monthName)}
+        {"<"}
       </button>
-    </h3>
-  </div>
 
-  <button
-    type="button"
-    className="calendar-nav-btn"
-    onClick={goToNextMonth}
-    aria-label="Следующий месяц"
-  >
-    {">"}
-  </button>
-</div>
+      <div className="calendar-title">
+        <h3>
+          <button
+            type="button"
+            className="calendar-month-name-btn"
+            onClick={() => setIsMonthPickerOpen((current) => !current)}
+            title="Выбрать месяц"
+          >
+            {capitalizeFirstLetter(monthName)}
+          </button>
+        </h3>
+      </div>
 
-{isMonthPickerOpen && (
-  <div className="month-picker-inline">
-    {[
-      "Январь",
-      "Февраль",
-      "Март",
-      "Апрель",
-      "Май",
-      "Июнь",
-      "Июль",
-      "Август",
-      "Сентябрь",
-      "Октябрь",
-      "Ноябрь",
-      "Декабрь",
-    ].map((month, index) => (
       <button
         type="button"
-        key={month}
-        className={
-          index === visibleDate.getMonth()
-            ? "month-picker-inline-item active"
-            : isPastMonth(new Date(visibleDate.getFullYear(), index, 1))
-              ? "month-picker-inline-item disabled"
-              : "month-picker-inline-item"
-        }
-        onClick={() => {
-          if (!isPastMonth(new Date(visibleDate.getFullYear(), index, 1))) {
-            pickMonth(index);
-          }
-        }}
-        disabled={isPastMonth(new Date(visibleDate.getFullYear(), index, 1))}
+        className="calendar-nav-btn"
+        onClick={goToNextMonth}
+        aria-label="Следующий месяц"
       >
-        {month}
-</button>
-    ))}
-  </div>
-)}
+        {">"}
+      </button>
+    </div>
 
-<div
-  ref={calendarMonthFrameRef}
-  className={
-    monthDirection
-      ? `calendar-month-frame ${monthDirection}`
-      : "calendar-month-frame"
-  }
->
-  {previousVisibleDate &&
-    renderCalendarGrid(previousVisibleDate, "calendar-layer calendar-old")}
-
-  {renderCalendarGrid(visibleDate, "calendar-layer calendar-current")}
-</div>
-        </div>
-
-        <aside className="day-panel desktop-day-panel">
-          {renderDayPanelContent()}
-        </aside>
+    {isMonthPickerOpen && (
+      <div className="month-picker-inline">
+        {[
+          "Январь",
+          "Февраль",
+          "Март",
+          "Апрель",
+          "Май",
+          "Июнь",
+          "Июль",
+          "Август",
+          "Сентябрь",
+          "Октябрь",
+          "Ноябрь",
+          "Декабрь",
+        ].map((month, index) => (
+          <button
+            type="button"
+            key={month}
+            className={
+              index === visibleDate.getMonth()
+                ? "month-picker-inline-item active"
+                : isPastMonth(new Date(visibleDate.getFullYear(), index, 1))
+                  ? "month-picker-inline-item disabled"
+                  : "month-picker-inline-item"
+            }
+            onClick={() => {
+              if (!isPastMonth(new Date(visibleDate.getFullYear(), index, 1))) {
+                pickMonth(index);
+              }
+            }}
+            disabled={isPastMonth(new Date(visibleDate.getFullYear(), index, 1))}
+          >
+            {month}
+          </button>
+        ))}
       </div>
+    )}
+
+    <div
+      ref={calendarMonthFrameRef}
+      className={
+        monthDirection
+          ? `calendar-month-frame ${monthDirection}`
+          : "calendar-month-frame"
+      }
+    >
+      {previousVisibleDate &&
+        renderCalendarGrid(previousVisibleDate, "calendar-layer calendar-old")}
+
+      {renderCalendarGrid(visibleDate, "calendar-layer calendar-current")}
+    </div>
+  </div>
+
+  {isMobileDayPanelOpen && !previousVisibleDate && (
+    <div className="day-panel mobile-bottom-day-panel">
+      {renderDayPanelContent()}
+    </div>
+  )}
+
+  <aside className="day-panel desktop-day-panel">
+    {renderDayPanelContent()}
+  </aside>
+</div>
     </section>
   );
 }
@@ -3392,18 +3485,38 @@ function CalendarTaskItem({ task, deleteTask, markTaskDone }) {
 }
 
 function WorkoutsPage({
+  activeSectionFromMenu = "weights",
   tasks = [],
   availableExercises = [],
+  setAvailableExercises,
+  exerciseGroups = [],
+  setExerciseGroups,
   workingWeights = [],
   setWorkingWeights,
 }) {
   const workouts = tasks.filter((task) => task.category === "Тренировка");
+const [activeExerciseGroupId, setActiveExerciseGroupId] = useState("all");
+useEffect(() => {
+  if (activeExerciseGroupId === "all") {
+    return;
+  }
 
-  const [activeSection, setActiveSection] = useState("weights");
+  const groupExists = exerciseGroups.some(
+    (group) => String(group.id) === String(activeExerciseGroupId)
+  );
+
+  if (!groupExists) {
+    setActiveExerciseGroupId("all");
+  }
+}, [exerciseGroups, activeExerciseGroupId]);
+const [isExerciseGroupModalOpen, setIsExerciseGroupModalOpen] = useState(false);
+  const activeSection = activeSectionFromMenu;
   const [isWorkingWeightModalOpen, setIsWorkingWeightModalOpen] =
     useState(false);
   const [editingWorkingWeight, setEditingWorkingWeight] = useState(null);
-
+  const [activeMetricCardKey, setActiveMetricCardKey] = useState(null);
+  const [isExerciseCreateModalOpen, setIsExerciseCreateModalOpen] =
+  useState(false);
   const sections = [
     {
       id: "weights",
@@ -3427,6 +3540,227 @@ function WorkoutsPage({
       countText: "гайдов",
     },
   ];
+
+  function getMetricCardKey(item) {
+  return `${item.exerciseId || "custom"}-${item.id}`;
+}
+
+function createExerciseGroup(groupData) {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    return;
+  }
+
+  fetch(`${API_URL}/exercise-groups`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(groupData),
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      setExerciseGroups((current) => [...current, data]);
+      setActiveExerciseGroupId(data.id);
+      setIsExerciseGroupModalOpen(false);
+    })
+    .catch((error) => {
+      console.error("Ошибка создания группы упражнений:", error);
+    });
+}
+  function createCustomExercise(exerciseData) {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    return;
+  }
+
+  fetch(`${API_URL}/exercises`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(exerciseData),
+  })
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      if (typeof setAvailableExercises === "function") {
+  setAvailableExercises((current) => [...current, data]);
+}
+
+setIsExerciseCreateModalOpen(false);
+    })
+    .catch((error) => {
+      console.error("Ошибка создания упражнения:", error);
+    });
+}
+ function formatWorkingWeightValue(item) {
+  if (!item) {
+    return "не заполнено";
+  }
+
+  if (item.measureType === "distance_time") {
+    if (item.distance && item.time) {
+      return `${item.distance} км / ${item.time}`;
+    }
+
+    if (item.time) {
+      return item.time;
+    }
+
+    if (item.distance) {
+      return `${item.distance} км`;
+    }
+
+    return "не заполнено";
+  }
+
+  if (item.measureType === "time_sets") {
+    if (item.time) {
+      return item.time;
+    }
+
+    return "не заполнено";
+  }
+
+  if (item.weight) {
+    return `${item.weight} кг`;
+  }
+
+  return "не заполнено";
+}
+
+const filteredAvailableExercises =
+  activeExerciseGroupId === "all"
+    ? availableExercises
+    : availableExercises.filter(
+        (exercise) => String(exercise.group_id) === String(activeExerciseGroupId)
+      );
+
+function getGroupedExerciseMetrics() {
+  const orderedItems = getOrderedExerciseMetrics().filter(Boolean);
+
+  const groupOrder = [
+    "Спина",
+    "Грудь",
+    "Ноги",
+    "Плечи",
+    "Бицепс",
+    "Трицепс",
+    "Пресс",
+    "Ягодицы",
+    "Кардио",
+    "Без группы",
+  ];
+
+  const groupsMap = {};
+
+  orderedItems.forEach((item) => {
+    const exercise = availableExercises.find(
+  (exerciseItem) =>
+    String(exerciseItem.id) === String(item.sourceExerciseId || item.exerciseId)
+);
+
+    const groupName =
+      exercise?.group_name ||
+      exercise?.muscle ||
+      exercise?.muscle_group ||
+      "Без группы";
+
+    if (!groupsMap[groupName]) {
+      groupsMap[groupName] = [];
+    }
+
+    groupsMap[groupName].push(item);
+  });
+
+  const sortedGroups = Object.keys(groupsMap).sort((firstGroup, secondGroup) => {
+    const firstIndex = groupOrder.indexOf(firstGroup);
+    const secondIndex = groupOrder.indexOf(secondGroup);
+
+    if (firstIndex === -1 && secondIndex === -1) {
+      return firstGroup.localeCompare(secondGroup);
+    }
+
+    if (firstIndex === -1) {
+      return 1;
+    }
+
+    if (secondIndex === -1) {
+      return -1;
+    }
+
+    return firstIndex - secondIndex;
+  });
+
+  return sortedGroups.map((groupName) => ({
+    name: groupName,
+    items: groupsMap[groupName],
+  }));
+}
+
+function getOrderedExerciseMetrics() {
+  const filteredAvailableExercises =
+    activeExerciseGroupId === "all"
+      ? availableExercises
+      : availableExercises.filter(
+          (exercise) =>
+            String(exercise.group_id) === String(activeExerciseGroupId)
+        );
+
+  return filteredAvailableExercises.map((exercise) => {
+    const metric = workingWeights.find((weightItem) => {
+      if (exercise.is_custom) {
+        return (
+          !weightItem.exerciseId &&
+          weightItem.exerciseName === exercise.name
+        );
+      }
+
+      return String(weightItem.exerciseId) === String(exercise.id);
+    });
+
+    return {
+      id: exercise.id,
+      sourceExerciseId: exercise.id,
+      exerciseId: exercise.is_custom ? null : exercise.id,
+      exerciseName: exercise.name,
+      measureType:
+        exercise.measure_type || exercise.measureType || "weight_reps",
+      measureUnits:
+        exercise.measure_units || exercise.measureUnits || [],
+      metric,
+      isCustom: Boolean(exercise.is_custom),
+    };
+  });
+}
+
+function openExerciseMetric(item) {
+  if (item.metric) {
+    openEditWorkingWeightModal(item.metric);
+    return;
+  }
+
+  setEditingWorkingWeight({
+    exerciseId: item.exerciseId,
+    exerciseName: item.exerciseName,
+  });
+
+  setIsWorkingWeightModalOpen(true);
+}
 
   function openAddWorkingWeightModal() {
     setEditingWorkingWeight(null);
@@ -3491,6 +3825,104 @@ function WorkoutsPage({
     });
 }
 
+function saveInlineWorkingWeight(item, values) {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    return;
+  }
+
+  const metric = item.metric;
+
+  const exercise = availableExercises.find(
+  (exerciseItem) =>
+    String(exerciseItem.id) === String(item.sourceExerciseId || item.exerciseId)
+);
+
+  const measureType =
+    metric?.measureType ||
+    exercise?.measure_type ||
+    exercise?.measureType ||
+    detectExerciseMeasureType(item.exerciseName);
+
+  const payload = {
+  ...(metric?.id ? { id: metric.id } : {}),
+  exerciseId: item.isCustom ? null : item.exerciseId,
+  exerciseName: item.exerciseName,
+  measureType,
+};
+
+  if (measureType === "distance_time") {
+    payload.distance =
+      values.distance === "" || values.distance === undefined
+        ? null
+        : normalizeMetricValue(values.distance)
+
+    const normalizedMinutes = normalizeMetricValue(values.minutes);
+
+payload.time = normalizedMinutes ? `${normalizedMinutes}:00` : "";
+  } else if (measureType === "time_sets") {
+    const normalizedMinutes = normalizeMetricValue(values.minutes);
+
+payload.time = normalizedMinutes ? `${normalizedMinutes}:00` : "";
+  } else {
+  payload.weight = normalizeMetricValue(values.weight);
+  payload.reps = normalizeMetricValue(values.reps);
+}
+
+  const isEditing = Boolean(metric?.id);
+
+  fetch(
+    isEditing
+      ? `${API_URL}/exercise-metrics/${metric.id}`
+      : `${API_URL}/exercise-metrics`,
+    {
+      method: isEditing ? "PUT" : "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        console.error(data.error);
+        return;
+      }
+
+      setWorkingWeights((current) => {
+        const exists = current.some((weightItem) => weightItem.id === data.id);
+
+        if (exists) {
+          return current.map((weightItem) =>
+            weightItem.id === data.id ? data : weightItem
+          );
+        }
+
+        return [data, ...current];
+      });
+    })
+    .catch((error) => {
+      console.error("Ошибка сохранения показателя:", error);
+    });
+}
+
+function normalizeMetricValue(value) {
+  if (value === "" || value === undefined || value === null) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  if (Number.isNaN(numberValue)) {
+    return null;
+  }
+
+  return Math.min(999, Math.max(0, numberValue));
+}
+
 function deleteWorkingWeight(id) {
   const token = localStorage.getItem("token");
 
@@ -3524,92 +3956,104 @@ function deleteWorkingWeight(id) {
   return (
     <section>
       <PageHeader
-        title="Тренировки"
-        subtitle="Рабочие веса, запланированные тренировки и гайды по упражнениям."
-      />
+  title={
+    activeSection === "weights"
+      ? "Рабочие веса"
+      : activeSection === "guides"
+        ? "Гайды"
+        : "Моя тренировка"
+  }
+  subtitle={
+    activeSection === "weights"
+      ? "Сохраняйте рабочие показатели по упражнениям."
+      : activeSection === "guides"
+        ? "Изучайте технику выполнения упражнений."
+        : "Планируйте свои тренировки и упражнения."
+  }
+/>
 
       <div className="training-page-clean">
-        <div className="training-section-grid">
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              className={
-                activeSection === section.id
-                  ? "training-section-card active"
-                  : "training-section-card"
-              }
-              onClick={() => setActiveSection(section.id)}
-            >
-              <div>
-                <span>{section.title}</span>
-                <p>{section.subtitle}</p>
-              </div>
-
-              <strong>
-                {section.count}
-                <small>{section.countText}</small>
-              </strong>
-            </button>
-          ))}
-        </div>
-
         <div className="training-active-panel">
           {activeSection === "weights" && (
             <section className="training-panel-section">
-              <div className="training-panel-header">
-                <div>
-                  <span>Мой рабочий вес</span>
-                  <h3>Рабочие веса по упражнениям</h3>
-                  <p>
-                    Храни вес, повторения и подходы для каждого упражнения.
-                    Потом эти данные пойдут в статистику прогресса.
-                  </p>
-                </div>
+              <div className="training-panel-header training-panel-header-compact">
+  <button
+  type="button"
+  className="training-action-btn"
+  onClick={() => setIsExerciseCreateModalOpen(true)}
+>
+  + Упражнение
+</button>
+</div>
 
-                <button
-                  type="button"
-                  className="training-action-btn"
-                  onClick={openAddWorkingWeightModal}
-                >
-                  Добавить упражнение
-                </button>
-              </div>
+              <div className="working-weights-layout">
+  <aside className="exercise-groups-sidebar">
+    <button
+      type="button"
+      className={
+        activeExerciseGroupId === "all"
+          ? "exercise-group-pill active"
+          : "exercise-group-pill"
+      }
+      onClick={() => setActiveExerciseGroupId("all")}
+    >
+      Все
+    </button>
 
-              {workingWeights.length === 0 ? (
-                <button
-                  type="button"
-                  className="training-empty-block training-empty-button"
-                  onClick={openAddWorkingWeightModal}
-                >
-                  <strong>Пока нет рабочих весов</strong>
-                  <p>
-                    Нажми сюда, чтобы добавить первое упражнение: вес,
-                    повторения и подходы.
-                  </p>
-                </button>
-              ) : (
-                <div className="training-weight-list">
-                  {workingWeights.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="training-weight-item"
-                      onClick={() => openEditWorkingWeightModal(item)}
-                    >
-                      <div>
-                        <strong>{item.exerciseName}</strong>
-                        <p>
-                          {item.weight} кг × {item.reps} повторений ×{" "}
-                          {item.sets} подхода
-                        </p>
-                      </div>
+    {exerciseGroups.map((group) => (
+      <button
+        key={group.id}
+        type="button"
+        className={
+          activeExerciseGroupId === group.id
+            ? "exercise-group-pill active"
+            : "exercise-group-pill"
+        }
+        style={{ "--group-color": group.color }}
+        onClick={() => setActiveExerciseGroupId(group.id)}
+      >
+        {group.name}
+      </button>
+    ))}
 
-                      <span>Изменить</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+    <button
+      type="button"
+      className="exercise-group-add-pill"
+      onClick={() => setIsExerciseGroupModalOpen(true)}
+    >
+      + Группа
+    </button>
+  </aside>
+
+  <div className="exercise-metric-groups">
+  {getGroupedExerciseMetrics().map((group) => (
+    <section key={group.name} className="exercise-metric-row-section">
+      <h3>{group.name}</h3>
+
+      <div className="exercise-metric-row">
+        {group.items.map((item) => {
+          const cardKey = getMetricCardKey(item);
+
+          return (
+            <ExerciseMetricCard
+              key={cardKey}
+              item={item}
+              availableExercises={availableExercises}
+              isOpen={activeMetricCardKey === cardKey}
+              onToggle={() =>
+                setActiveMetricCardKey((current) =>
+                  current === cardKey ? null : cardKey
+                )
+              }
+              onSave={saveInlineWorkingWeight}
+            />
+          );
+        })}
+      </div>
+    </section>
+  ))}
+</div>
+</div>
             </section>
           )}
 
@@ -3667,6 +4111,20 @@ function deleteWorkingWeight(id) {
             </section>
           )}
         </div>
+        {isExerciseCreateModalOpen && (
+  <CreateExerciseModal
+    exerciseGroups={exerciseGroups}
+  activeExerciseGroupId={activeExerciseGroupId}
+  onClose={() => setIsExerciseCreateModalOpen(false)}
+  onSave={createCustomExercise}
+  />
+)}
+{isExerciseGroupModalOpen && (
+  <CreateExerciseGroupModal
+    onClose={() => setIsExerciseGroupModalOpen(false)}
+    onSave={createExerciseGroup}
+  />
+)}
       </div>
 
       {isWorkingWeightModalOpen && (
@@ -3680,6 +4138,190 @@ function deleteWorkingWeight(id) {
       )}
     </section>
   );
+}
+
+function ExerciseMetricCard({
+  item,
+  availableExercises,
+  isOpen,
+  onToggle,
+  onSave,
+}) {
+  const metric = item.metric;
+
+  const exercise = availableExercises.find(
+  (exerciseItem) =>
+    String(exerciseItem.id) === String(item.sourceExerciseId || item.exerciseId)
+);
+
+  const measureType =
+    metric?.measureType ||
+    exercise?.measure_type ||
+    exercise?.measureType ||
+    detectExerciseMeasureType(item.exerciseName);
+
+  const measureUnits =
+    exercise?.measure_units ||
+    exercise?.measureUnits ||
+    getDefaultMeasureUnits(measureType);
+
+  const [weight, setWeight] = useState(metric?.weight ?? "");
+  const [distance, setDistance] = useState(metric?.distance ?? "");
+  const [minutes, setMinutes] = useState(getMinutesValue(metric?.time));
+  const [reps, setReps] = useState(metric?.reps ?? "");
+
+  useEffect(() => {
+    setWeight(metric?.weight ?? "");
+    setDistance(metric?.distance ?? "");
+    setMinutes(getMinutesValue(metric?.time));
+    setReps(metric?.reps ?? "");
+  }, [metric?.weight, metric?.distance, metric?.time, metric?.reps]);
+
+  function getVisibleValue() {
+    if (!metric) {
+      return "—";
+    }
+
+    const values = [];
+
+    if (measureUnits.includes("kg") && metric.weight) {
+      values.push(`${metric.weight} кг`);
+    }
+
+    if (measureUnits.includes("km") && metric.distance) {
+      values.push(`${metric.distance} км`);
+    }
+
+    if (measureUnits.includes("min") && metric.time) {
+      values.push(`${getMinutesValue(metric.time)} мин`);
+    }
+
+    if (measureUnits.includes("reps") && metric.reps) {
+      values.push(`${metric.reps} повт.`);
+    }
+
+    return values.length > 0 ? values.join(" · ") : "—";
+  }
+
+  function handleSave(event) {
+    event.stopPropagation();
+
+    onSave(item, {
+      weight: measureUnits.includes("kg") ? weight : undefined,
+      distance: measureUnits.includes("km") ? distance : undefined,
+      minutes: measureUnits.includes("min") ? minutes : undefined,
+      reps: measureUnits.includes("reps") ? reps : undefined,
+    });
+  }
+
+  return (
+    <div className={isOpen ? "exercise-metric-card open" : "exercise-metric-card"}>
+      <button
+        type="button"
+        className="exercise-metric-card-top"
+        onClick={onToggle}
+      >
+        <span className="exercise-metric-name">{item.exerciseName}</span>
+
+        <span className="exercise-metric-value">{getVisibleValue()}</span>
+      </button>
+
+      {isOpen && (
+        <div className="exercise-metric-editor">
+          {measureUnits.includes("kg") && (
+            <label>
+              <span>кг</span>
+
+              <input
+                type="number"
+                min="0"
+                max="999"
+                value={weight}
+                onChange={(event) => setWeight(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+          )}
+
+          {measureUnits.includes("km") && (
+            <label>
+              <span>км</span>
+
+              <input
+                type="number"
+                min="0"
+                max="999"
+                step="0.1"
+                value={distance}
+                onChange={(event) => setDistance(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+          )}
+
+          {measureUnits.includes("min") && (
+            <label>
+              <span>мин</span>
+
+              <input
+                type="number"
+                min="0"
+                max="999"
+                value={minutes}
+                onChange={(event) => setMinutes(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+          )}
+
+          {measureUnits.includes("reps") && (
+            <label>
+              <span>повт.</span>
+
+              <input
+                type="number"
+                min="0"
+                max="999"
+                value={reps}
+                onChange={(event) => setReps(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+          )}
+
+          <button
+            type="button"
+            className="exercise-metric-save-btn"
+            onClick={handleSave}
+          >
+            Сохранить
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getMinutesValue(time) {
+  if (!time) {
+    return "";
+  }
+
+  const parts = String(time).split(":");
+
+  return String(Number(parts[0]) || 0);
+}
+
+function getDefaultMeasureUnits(measureType) {
+  if (measureType === "distance_time") {
+    return ["km", "min"];
+  }
+
+  if (measureType === "time_sets") {
+    return ["min"];
+  }
+
+  return ["kg"];
 }
 
 function WorkingWeightsBlock({
@@ -3747,9 +4389,208 @@ function WorkingWeightsBlock({
               Ещё упражнений: {workingWeights.length - 4}
             </div>
           )}
+          
         </div>
+        
       )}
     </section>
+  );
+}
+
+function CreateExerciseModal({
+  exerciseGroups = [],
+  activeExerciseGroupId = "all",
+  onClose,
+  onSave,
+}) {
+  const [name, setName] = useState("");
+  const [measureUnits, setMeasureUnits] = useState(["kg"]);
+  const [groupId, setGroupId] = useState(
+  activeExerciseGroupId === "all" ? "" : activeExerciseGroupId
+);
+
+  const unitOptions = [
+    { value: "kg", label: "кг" },
+    { value: "km", label: "км" },
+    { value: "min", label: "мин" },
+    { value: "reps", label: "кол-во повторений" },
+  ];
+
+  function toggleUnit(unit) {
+    setMeasureUnits((current) => {
+      if (current.includes(unit)) {
+        return current.filter((item) => item !== unit);
+      }
+
+      return [...current, unit];
+    });
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+
+    const trimmedName = name.trim();
+
+    if (!trimmedName) {
+      return;
+    }
+
+    if (measureUnits.length === 0) {
+      return;
+    }
+
+    onSave({
+  name: trimmedName,
+  measureUnits,
+  groupId: groupId || null,
+});
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="simple-modal create-exercise-modal" onSubmit={handleSubmit}>
+        <div className="modal-header">
+          <div>
+            <h2>Новое упражнение</h2>
+          </div>
+
+          <button type="button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <label className="field">
+          <span>Название упражнения</span>
+
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Например: Бег в гору"
+            autoFocus
+          />
+        </label>
+
+        <div className="field">
+          <span>Единица измерения</span>
+
+          <div className="exercise-unit-checkboxes">
+            {unitOptions.map((unit) => (
+              <label key={unit.value} className="exercise-unit-checkbox">
+                <input
+                  type="checkbox"
+                  checked={measureUnits.includes(unit.value)}
+                  onChange={() => toggleUnit(unit.value)}
+                />
+
+                <span>{unit.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+<label className="field">
+  <span>Группа</span>
+
+  <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
+    <option value="">Без группы</option>
+
+    {exerciseGroups.map((group) => (
+      <option key={group.id} value={group.id}>
+        {group.name}
+      </option>
+    ))}
+  </select>
+</label>
+
+        <button
+          type="submit"
+          className="primary-btn full"
+          disabled={!name.trim() || measureUnits.length === 0}
+        >
+          Создать упражнение
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function CreateExerciseGroupModal({ onClose, onSave }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#E6F8FA");
+
+  const colors = [
+    "#E6F8FA",
+    "#ECFDF5",
+    "#FFFBEB",
+    "#F5F3FF",
+    "#FEF2F2",
+    "#EFF6FF",
+  ];
+
+  function handleSubmit(event) {
+    event.preventDefault();
+
+    const trimmedName = name.trim();
+
+    if (!trimmedName) {
+      return;
+    }
+
+    onSave({
+      name: trimmedName,
+      color,
+    });
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <form className="simple-modal group-modal" onSubmit={handleSubmit}>
+        <div className="modal-header">
+          <div>
+            <h2>Новая группа</h2>
+          </div>
+
+          <button type="button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <label className="field">
+          <span>Название группы</span>
+
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Например: Кардио"
+            autoFocus
+          />
+        </label>
+
+        <div className="group-color-field">
+          <span>Цвет группы</span>
+
+          <div className="group-color-palette">
+            {colors.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={
+                  color === item ? "group-color-dot active" : "group-color-dot"
+                }
+                style={{ background: item }}
+                onClick={() => setColor(item)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <button type="submit" className="primary-btn full">
+          Создать группу
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -3764,11 +4605,17 @@ function WorkingWeightModal({
   const [exerciseName, setExerciseName] = useState(
     initialData?.exerciseName || ""
   );
+
   const [isExerciseListOpen, setIsExerciseListOpen] = useState(false);
 
+  const [measureType, setMeasureType] = useState(
+    initialData?.measureType ||
+      detectExerciseMeasureType(initialData?.exerciseName || "")
+  );
+
   const [weight, setWeight] = useState(initialData?.weight || "");
-  const [reps, setReps] = useState(initialData?.reps || "");
-  const [sets, setSets] = useState(initialData?.sets || 3);
+  const [distance, setDistance] = useState(initialData?.distance || "");
+  const [time, setTime] = useState(initialData?.time || "");
 
   const exerciseOptions = Array.isArray(exercises) ? exercises : [];
 
@@ -3786,15 +4633,30 @@ function WorkingWeightModal({
     .slice(0, 8);
 
   function selectExercise(exercise) {
+    const selectedName = exercise.name;
+    const selectedMeasureType =
+      exercise.measure_type ||
+      exercise.measureType ||
+      detectExerciseMeasureType(selectedName);
+
     setExerciseId(exercise.id);
-    setExerciseName(exercise.name);
+    setExerciseName(selectedName);
+    setMeasureType(selectedMeasureType);
     setIsExerciseListOpen(false);
   }
 
   function handleExerciseNameChange(value) {
     setExerciseName(value);
     setExerciseId(null);
+    setMeasureType(detectExerciseMeasureType(value));
     setIsExerciseListOpen(true);
+  }
+
+  function changeNumberValue(setter, currentValue, step) {
+    const currentNumber = Number(currentValue || 0);
+    const nextNumber = Math.max(0, currentNumber + step);
+
+    setter(String(nextNumber));
   }
 
   function handleSave(event) {
@@ -3802,21 +4664,54 @@ function WorkingWeightModal({
 
     const trimmedExerciseName = exerciseName.trim();
 
-    if (!trimmedExerciseName || !weight || !reps || !sets) {
+    if (!trimmedExerciseName) {
       return;
     }
 
-    const item = {
+    if (measureType === "distance_time") {
+      if (!distance && !time) {
+        return;
+      }
+
+      onSave({
+        ...(initialData?.id ? { id: initialData.id } : {}),
+        exerciseId,
+        exerciseName: trimmedExerciseName,
+        measureType,
+        distance: distance ? Number(distance) : null,
+        time,
+      });
+
+      return;
+    }
+
+    if (measureType === "time_sets") {
+      if (!time) {
+        return;
+      }
+
+      onSave({
+        ...(initialData?.id ? { id: initialData.id } : {}),
+        exerciseId,
+        exerciseName: trimmedExerciseName,
+        measureType,
+        time,
+      });
+
+      return;
+    }
+
+    if (!weight) {
+      return;
+    }
+
+    onSave({
       ...(initialData?.id ? { id: initialData.id } : {}),
       exerciseId,
       exerciseName: trimmedExerciseName,
+      measureType,
       weight: Number(weight),
-      reps: Number(reps),
-      sets: Number(sets),
-      updatedAt: new Date().toISOString(),
-    };
-
-    onSave(item);
+    });
   }
 
   return (
@@ -3825,7 +4720,7 @@ function WorkingWeightModal({
         <div className="modal-header">
           <div>
             <h2>
-              {initialData ? "Изменить рабочий вес" : "Добавить рабочий вес"}
+              {initialData?.id ? "Изменить показатель" : "Добавить показатель"}
             </h2>
           </div>
 
@@ -3870,69 +4765,156 @@ function WorkingWeightModal({
               )}
             </div>
           )}
+        </label>
 
-          {exerciseId && (
-            <div className="field-hint">
-              Упражнение выбрано из базы
+        {measureType === "weight_reps" && (
+          <div className="metric-stepper-row">
+            <span className="metric-stepper-name">{exerciseName || "Вес"}</span>
+
+            <div className="metric-stepper-control">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={weight}
+                onChange={(event) => setWeight(event.target.value)}
+                placeholder="0"
+              />
+
+              <span className="metric-stepper-unit">кг</span>
+
+              <div className="metric-stepper-buttons">
+                <button
+                  type="button"
+                  onClick={() => changeNumberValue(setWeight, weight, 1)}
+                >
+                  ↑
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => changeNumberValue(setWeight, weight, -1)}
+                >
+                  ↓
+                </button>
+              </div>
             </div>
-          )}
-        </label>
+          </div>
+        )}
 
-        <div className="form-grid">
+        {measureType === "distance_time" && (
+          <>
+            <div className="metric-stepper-row">
+              <span className="metric-stepper-name">
+                {exerciseName || "Дистанция"}
+              </span>
+
+              <div className="metric-stepper-control">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={distance}
+                  onChange={(event) => setDistance(event.target.value)}
+                  placeholder="0"
+                />
+
+                <span className="metric-stepper-unit">км</span>
+
+                <div className="metric-stepper-buttons">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      changeNumberValue(setDistance, distance, 0.1)
+                    }
+                  >
+                    ↑
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      changeNumberValue(setDistance, distance, -0.1)
+                    }
+                  >
+                    ↓
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <label className="field">
+              <span>Время</span>
+
+              <input
+                type="text"
+                value={time}
+                onChange={(event) => setTime(event.target.value)}
+                placeholder="25:00"
+              />
+            </label>
+          </>
+        )}
+
+        {measureType === "time_sets" && (
           <label className="field">
-            <span>Рабочий вес, кг</span>
+            <span>Продолжительность</span>
 
             <input
-              type="number"
-              min="0"
-              step="0.5"
-              value={weight}
-              onChange={(event) => setWeight(event.target.value)}
-              placeholder="60"
+              type="text"
+              value={time}
+              onChange={(event) => setTime(event.target.value)}
+              placeholder="01:30"
             />
           </label>
-
-          <label className="field">
-            <span>Повторения</span>
-
-            <input
-              type="number"
-              min="1"
-              value={reps}
-              onChange={(event) => setReps(event.target.value)}
-              placeholder="8"
-            />
-          </label>
-        </div>
-
-        <label className="field">
-          <span>Подходы</span>
-
-          <input
-            type="number"
-            min="1"
-            value={sets}
-            onChange={(event) => setSets(event.target.value)}
-            placeholder="3"
-          />
-        </label>
+        )}
 
         <button type="submit" className="primary-btn full">
           Сохранить
         </button>
 
-        {initialData && (
+        {initialData?.id && (
           <button
             type="button"
             className="danger-btn full working-weight-delete-btn"
             onClick={() => onDelete(initialData.id)}
           >
-            Удалить упражнение
+            Удалить показатель
           </button>
         )}
       </form>
     </div>
   );
+}
+
+function detectExerciseMeasureType(exerciseName) {
+  const name = String(exerciseName || "").toLowerCase();
+
+  const distanceKeywords = [
+    "бег",
+    "пробеж",
+    "ходьб",
+    "велосипед",
+    "велотренаж",
+    "кардио",
+    "плаван",
+    "эллипс",
+    "дорожк",
+    "скакалк",
+    "гребн",
+  ];
+
+  const timeKeywords = ["планка", "вис", "удержание", "статик"];
+
+  if (distanceKeywords.some((keyword) => name.includes(keyword))) {
+    return "distance_time";
+  }
+
+  if (timeKeywords.some((keyword) => name.includes(keyword))) {
+    return "time_sets";
+  }
+
+  return "weight_reps";
 }
 
 function WorkoutCard({ workout, markWorkoutExerciseDone }) {

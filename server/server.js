@@ -7,12 +7,15 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
 const app = express();
+ 
 
 app.use(cors());
 app.use(express.json());
 
+
+//WW
 function parseDurationToSeconds(value) {
-  if (!value) {
+  if (value === null || value === undefined || value === "") {
     return null;
   }
 
@@ -22,17 +25,23 @@ function parseDurationToSeconds(value) {
     return null;
   }
 
+  let totalSeconds = null;
+
   if (parts.length === 2) {
     const [minutes, seconds] = parts;
-    return minutes * 60 + seconds;
+    totalSeconds = minutes * 60 + seconds;
   }
 
   if (parts.length === 3) {
     const [hours, minutes, seconds] = parts;
-    return hours * 3600 + minutes * 60 + seconds;
+    totalSeconds = hours * 3600 + minutes * 60 + seconds;
   }
 
-  return null;
+  if (!totalSeconds || totalSeconds <= 0) {
+    return null;
+  }
+
+  return totalSeconds;
 }
 
 function formatSecondsToDuration(seconds) {
@@ -77,6 +86,7 @@ function formatExerciseMetric(row) {
     updatedAt: row.updated_at,
   };
 }
+
 
 
 
@@ -548,14 +558,12 @@ app.post("/api/auth/register", async (req, res) => {
       subscription,
     });
   } catch (error) {
-    await client.query("ROLLBACK");
-
-    console.error("Ошибка регистрации:", error);
-
-    res.status(500).json({
-      error: "Ошибка регистрации пользователя",
-    });
-  } finally {
+  console.error("REGISTER ERROR:", error);
+  res.status(500).json({
+    error: "Ошибка регистрации",
+    details: error.message
+  });
+} finally {
     client.release();
   }
 });
@@ -1228,6 +1236,7 @@ app.get("/api/muscle-groups", async (req, res) => {
   }
 });
 
+//WW  
 app.get("/api/exercises", async (req, res) => {
   try {
     const { muscle } = req.query;
@@ -1237,37 +1246,49 @@ app.get("/api/exercises", async (req, res) => {
     if (muscle) {
       result = await pool.query(
         `
-        SELECT
+        SELECT DISTINCT ON (e.id)
           e.id,
           e.name,
           e.description,
           e.difficulty,
           e.equipment,
           e.is_premium,
-          mg.name AS muscle
+          e.measure_type,
+          e.measure_units,
+          NULL::uuid AS group_id,
+          mg.name AS group_name,
+          NULL::text AS group_color,
+          mg.name AS muscle,
+          false AS is_custom
         FROM exercises e
         JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id
         JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
         WHERE mg.name = $1
-        ORDER BY e.name
+        ORDER BY e.id, mg.name
         `,
         [muscle]
       );
     } else {
       result = await pool.query(
         `
-        SELECT
+        SELECT DISTINCT ON (e.id)
           e.id,
           e.name,
           e.description,
           e.difficulty,
           e.equipment,
           e.is_premium,
-          mg.name AS muscle
+          e.measure_type,
+          e.measure_units,
+          NULL::uuid AS group_id,
+          mg.name AS group_name,
+          NULL::text AS group_color,
+          mg.name AS muscle,
+          false AS is_custom
         FROM exercises e
         LEFT JOIN exercise_muscle_groups emg ON emg.exercise_id = e.id
         LEFT JOIN muscle_groups mg ON mg.id = emg.muscle_group_id
-        ORDER BY e.name
+        ORDER BY e.id, mg.name
         `
       );
     }
@@ -1278,6 +1299,253 @@ app.get("/api/exercises", async (req, res) => {
 
     res.status(500).json({
       error: "Ошибка загрузки упражнений",
+      message: error.message,
+    });
+  }
+});
+
+//WW
+app.post("/api/exercises", authMiddleware, async (req, res) => {
+  try {
+    const { name, measureUnits, groupId } = req.body;
+
+    const trimmedName = String(name || "").trim();
+
+    if (!trimmedName) {
+      return res.status(400).json({
+        error: "Введите название упражнения",
+      });
+    }
+
+    const units = Array.isArray(measureUnits) ? measureUnits : [];
+
+    if (units.length === 0) {
+      return res.status(400).json({
+        error: "Выберите единицу измерения",
+      });
+    }
+
+    const allowedUnits = ["kg", "km", "min", "reps"];
+
+    const normalizedUnits = units.filter((unit) =>
+      allowedUnits.includes(unit)
+    );
+
+    if (normalizedUnits.length === 0) {
+      return res.status(400).json({
+        error: "Выберите корректную единицу измерения",
+      });
+    }
+
+    let measureType = "weight_reps";
+
+    if (normalizedUnits.includes("km")) {
+      measureType = "distance_time";
+    } else if (
+      normalizedUnits.includes("min") &&
+      !normalizedUnits.includes("kg")
+    ) {
+      measureType = "time_sets";
+    }
+
+    const existingConstExercise = await pool.query(
+      `
+      SELECT id
+      FROM exercises
+      WHERE LOWER(name) = LOWER($1)
+      LIMIT 1
+      `,
+      [trimmedName]
+    );
+
+    if (existingConstExercise.rows.length > 0) {
+      return res.status(409).json({
+        error: "Такое упражнение уже есть в общей базе",
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO user_exercises (
+        user_id,
+        name,
+        description,
+        difficulty,
+        equipment,
+        is_premium,
+        measure_type,
+        measure_units,
+        group_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+      RETURNING
+        id,
+        name,
+        description,
+        difficulty,
+        equipment,
+        is_premium,
+        measure_type,
+        measure_units,
+        group_id,
+        true AS is_custom
+      `,
+      [
+        req.user.id,
+        trimmedName,
+        null,
+        "Средняя",
+        null,
+        false,
+        measureType,
+        JSON.stringify(normalizedUnits),
+        groupId || null,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Ошибка создания пользовательского упражнения:", error);
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: "У вас уже есть такое упражнение",
+      });
+    }
+
+    res.status(500).json({
+      error: "Ошибка создания упражнения",
+      message: error.message,
+    });
+  }
+});
+
+//WW
+app.get("/api/user-exercises", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        ue.id,
+        ue.name,
+        ue.description,
+        ue.difficulty,
+        ue.equipment,
+        ue.is_premium,
+        ue.measure_type,
+        ue.measure_units,
+        ue.group_id,
+        eg.name AS group_name,
+        eg.color AS group_color,
+        true AS is_custom
+      FROM user_exercises ue
+      LEFT JOIN exercise_groups eg ON eg.id = ue.group_id
+      WHERE ue.user_id = $1
+      ORDER BY ue.created_at ASC
+      `,
+      [req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Ошибка загрузки пользовательских упражнений:", error);
+
+    res.status(500).json({
+      error: "Ошибка загрузки пользовательских упражнений",
+      message: error.message,
+    });
+  }
+});
+
+//WW
+app.get("/api/exercise-groups", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT id, name, color, created_at
+      FROM exercise_groups
+      WHERE user_id = $1
+      ORDER BY created_at ASC
+      `,
+      [req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Ошибка загрузки групп упражнений:", error);
+
+    res.status(500).json({
+      error: "Ошибка загрузки групп упражнений",
+    });
+  }
+});
+
+app.post("/api/exercise-groups", authMiddleware, async (req, res) => {
+  try {
+    const { name, color } = req.body;
+
+    const trimmedName = String(name || "").trim();
+
+    if (!trimmedName) {
+      return res.status(400).json({
+        error: "Введите название группы",
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO exercise_groups (
+        user_id,
+        name,
+        color
+      )
+      VALUES ($1, $2, $3)
+      RETURNING id, name, color, created_at
+      `,
+      [req.user.id, trimmedName, color || "#E6F8FA"]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Ошибка создания группы упражнений:", error);
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: "Такая группа уже существует",
+      });
+    }
+
+    res.status(500).json({
+      error: "Ошибка создания группы упражнений",
+    });
+  }
+});
+
+app.delete("/api/exercise-groups/:id", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      DELETE FROM exercise_groups
+      WHERE id = $1 AND user_id = $2
+      RETURNING id
+      `,
+      [req.params.id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Группа не найдена",
+      });
+    }
+
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("Ошибка удаления группы упражнений:", error);
+
+    res.status(500).json({
+      error: "Ошибка удаления группы упражнений",
     });
   }
 });
@@ -1471,7 +1739,103 @@ app.get("/api/task-groups", authMiddleware, async (req, res) => {
   }
 });
 
+//WW
+
+
+//WW
+app.get("/api/calendar/:year/holidays", async (req, res) => {
+  try {
+    const year = Number(req.params.year);
+
+    if (!Number.isInteger(year) || year < 2020 || year > 2030) {
+      return res.json({
+        year,
+        months: [],
+        days: [],
+        status: 200,
+      });
+    }
+
+    const response = await fetch(
+      `https://calendar.kuzyak.in/api/calendar/${year}`,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+          Referer: "https://calendar.kuzyak.in/",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Kuzyak API status:", response.status);
+
+      return res.json({
+        year,
+        months: [],
+        days: [],
+        status: 200,
+      });
+    }
+
+    const data = await response.json();
+
+    res.json(data);
+  } catch (error) {
+    console.error("Ошибка загрузки производственного календаря:", error);
+
+    res.json({
+      year: Number(req.params.year),
+      months: [],
+      days: [],
+      status: 200,
+    });
+  }
+});
+
+//WW
+app.get("/api/import/wger/exercises-preview", async (req, res) => {
+  try {
+    const response = await fetch(
+      "https://wger.de/api/v2/exercise/?language=2&limit=20"
+    );
+
+    if (!response.ok) {
+      console.error("Wger API status:", response.status);
+
+      return res.status(response.status).json({
+        error: "Не удалось получить упражнения из wger",
+      });
+    }
+
+    const data = await response.json();
+
+    res.json({
+      count: data.count,
+      next: data.next,
+      results: data.results.map((exercise) => ({
+        id: exercise.id,
+        name: exercise.name,
+        description: exercise.description,
+        category: exercise.category,
+        muscles: exercise.muscles,
+        muscles_secondary: exercise.muscles_secondary,
+        equipment: exercise.equipment,
+      })),
+    });
+  } catch (error) {
+    console.error("Ошибка проверки wger:", error);
+
+    res.status(500).json({
+      error: "Ошибка проверки wger",
+    });
+  }
+});
+
+
+
+//WW
 app.listen(PORT, () => {
   console.log(`Backend запущен: http://localhost:${PORT}`);
 });
-

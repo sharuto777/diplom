@@ -2140,14 +2140,13 @@ app.post("/api/exercises", authMiddleware, async (req, res) => {
 
     let measureType = "weight_reps";
 
-    if (normalizedUnits.includes("km")) {
-      measureType = "distance_time";
-    } else if (
-      normalizedUnits.includes("min") &&
-      !normalizedUnits.includes("kg")
-    ) {
-      measureType = "time_sets";
-    }
+if (
+  normalizedUnits.includes("min") &&
+  !normalizedUnits.includes("kg") &&
+  !normalizedUnits.includes("reps")
+) {
+  measureType = "time_sets";
+}
 
     const existingConstExercise = await pool.query(
       `

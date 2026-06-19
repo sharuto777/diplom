@@ -1,4 +1,6 @@
 import React from "react";
+import { useAppTheme } from "../../hooks/useAppTheme";
+import { getGroupSurfaceStyles } from "../../utils/groupColors";
 
 function TaskGroupTabs({
   groups = [],
@@ -7,6 +9,8 @@ function TaskGroupTabs({
   openGroupModal,
   deleteTaskGroup,
 }) {
+  const theme = useAppTheme();
+
   function handleWheel(event) {
     if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
       event.currentTarget.scrollLeft += event.deltaY;
@@ -35,9 +39,7 @@ function TaskGroupTabs({
               ? "task-group-tab task-group-tab-with-delete active"
               : "task-group-tab task-group-tab-with-delete"
           }
-          style={{
-            "--group-color": group.color || "#E6F8FA",
-          }}
+          style={getGroupSurfaceStyles(group.color, theme)}
         >
           <button
             type="button"

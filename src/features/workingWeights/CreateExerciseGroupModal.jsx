@@ -1,17 +1,22 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SaveCheckIcon } from "../../components/common/Icons";
-
-const groupColors = [
-  "#FEE2E2",
-  "#FFEDD5",
-  "#FEF9C3",
-  "#DCFCE7",
-  "#E6F8FA",
-];
+import { useAppTheme } from "../../hooks/useAppTheme";
+import {
+  canonicalGroupColor,
+  getDefaultGroupColor,
+  getGroupColors,
+  resolveGroupColor,
+} from "../../utils/groupColors";
 
 function CreateExerciseGroupModal({ onClose, onSave }) {
+  const theme = useAppTheme();
+  const groupColors = getGroupColors(theme);
   const [name, setName] = useState("");
-  const [color, setColor] = useState(groupColors[4]);
+  const [color, setColor] = useState(() => getDefaultGroupColor(theme));
+
+  useEffect(() => {
+    setColor((current) => resolveGroupColor(current, theme));
+  }, [theme]);
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -24,7 +29,7 @@ function CreateExerciseGroupModal({ onClose, onSave }) {
 
     onSave({
       name: trimmedName,
-      color,
+      color: canonicalGroupColor(color),
     });
   }
 

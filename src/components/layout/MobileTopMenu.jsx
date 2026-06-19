@@ -1,5 +1,6 @@
 import React from "react";
 import { MenuSvgIcon } from "../common/Icons";
+import ThemeToggleButton from "../common/ThemeToggleButton";
 
 const mobileMenuItems = [
   "Задачи",
@@ -16,6 +17,8 @@ function MobileTopMenu({
   activePage,
   setActivePage,
   closeMobileMenu,
+  theme = "light",
+  onToggleTheme,
 }) {
   function handlePageClick(page) {
     setActivePage(page);
@@ -38,6 +41,13 @@ function MobileTopMenu({
           <h1>Sunday</h1>
           <p>Органайзер ЗОЖ</p>
         </div>
+
+        <ThemeToggleButton
+          theme={theme}
+          onToggle={onToggleTheme}
+          className="mobile-top-menu-theme"
+          showLabel
+        />
 
         <div className="mobile-top-menu-list">
           {mobileMenuItems.map((item) => (

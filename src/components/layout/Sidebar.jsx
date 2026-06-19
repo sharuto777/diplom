@@ -1,6 +1,7 @@
 import React from "react";
 import AppLogo from "../AppLogo";
 import { PremiumCrownIcon, MenuSvgIcon } from "../common/Icons";
+import ThemeToggleButton from "../common/ThemeToggleButton";
 import { API_URL } from "../../api/apiClient";
 
 const menuGroups = [
@@ -30,6 +31,8 @@ function Sidebar({
   isSidebarCollapsed,
   setIsSidebarCollapsed,
   closeMobileMenu,
+  theme = "light",
+  onToggleTheme,
 }) {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -180,6 +183,13 @@ function Sidebar({
           </div>
         </div>
       </div>
+
+      <ThemeToggleButton
+        theme={theme}
+        onToggle={onToggleTheme}
+        className="sidebar-theme-toggle"
+        showLabel
+      />
 
       {!isPremiumUser && (
         <button

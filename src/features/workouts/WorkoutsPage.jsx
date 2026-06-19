@@ -17,6 +17,11 @@ import {
 
 import { SaveCheckIcon } from "../../components/common/Icons";
 import { API_URL } from "../../api/apiClient";
+import { useAppTheme } from "../../hooks/useAppTheme";
+import {
+  getGroupSurfaceStyles,
+  normalizeGroup,
+} from "../../utils/groupColors";
 
 function WorkoutsPage({
   activeSectionFromMenu = "weights",
@@ -36,6 +41,7 @@ function WorkoutsPage({
   isPremiumUser = false,
   onOpenPremium,
 }) {
+  const theme = useAppTheme();
   const workouts = tasks.filter((task) => task.category === "Тренировка");
 const [activeExerciseGroupId, setActiveExerciseGroupId] = useState("all");
 useEffect(() => {
@@ -244,7 +250,7 @@ function createExerciseGroup(groupData) {
         return;
       }
 
-      setExerciseGroups((current) => [...current, data]);
+      setExerciseGroups((current) => [...current, normalizeGroup(data)]);
       setActiveExerciseGroupId(data.id);
       setIsExerciseGroupModalOpen(false);
     })
@@ -1196,9 +1202,7 @@ function loadUserExercisesForWorkout(setAvailableExercises) {
             ? "exercise-group-tab exercise-group-tab-with-delete active"
             : "exercise-group-tab exercise-group-tab-with-delete"
         }
-        style={{
-          "--group-color": group.color || "#E6F8FA",
-        }}
+        style={getGroupSurfaceStyles(group.color, theme)}
       >
         <button
           type="button"

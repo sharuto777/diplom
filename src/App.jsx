@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./styles/styles.css";
+import "./styles/dark-theme.css";
+import { applyTheme, getStoredTheme, toggleTheme } from "./utils/theme";
 import AppLogo from "./components/AppLogo.jsx";
 
 import {
@@ -14,6 +16,7 @@ import {
   formatPriority,
   formatDate,
 } from "./features/tasks/taskApiFormatters";
+import { canonicalGroupColor, normalizeGroup } from "./utils/groupColors";
 
 import WorkoutsPage from "./features/workouts/WorkoutsPage";
 import PremiumModal from "./components/common/PremiumModal";
@@ -29,7 +32,8 @@ import MobileTopMenu from "./components/layout/MobileTopMenu";
 import TasksPage from "./features/tasks/TasksPage";
 import WorkoutModal from "./features/workouts/WorkoutModal";
 
-import { API_URL } from "./api/apiClient"
+import { API_URL } from "./api/apiClient";
+
 
 const menuItems = [
   "Задачи",
@@ -58,6 +62,7 @@ function App() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [theme, setTheme] = useState(getStoredTheme);
 
   const [taskFilter, setTaskFilter] = useState("Все");
   const [searchQuery, setSearchQuery] = useState("");
@@ -104,6 +109,14 @@ function showToast(message, type = "info") {
     type,
   });
 }
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  function handleToggleTheme() {
+    setTheme((currentTheme) => toggleTheme(currentTheme));
+  }
 
 function buyPremium(planCode) {
   const token = localStorage.getItem("token");
@@ -666,7 +679,7 @@ function loadExerciseGroups(token = localStorage.getItem("token")) {
         return;
       }
 
-      setExerciseGroups(data);
+      setExerciseGroups(data.map(normalizeGroup));
     })
     .catch((error) => {
       console.error("Ошибка загрузки групп упражнений:", error);
@@ -725,7 +738,9 @@ function loadTaskGroups(token = localStorage.getItem("token")) {
       return data;
     })
     .then((data) => {
-      setTaskGroups(Array.isArray(data) ? data : []);
+      setTaskGroups(
+        Array.isArray(data) ? data.map(normalizeGroup) : []
+      );
     })
     .catch((error) => {
       console.error("Ошибка загрузки групп задач:", error);
@@ -765,7 +780,7 @@ function createTaskGroup(formData) {
     .then((group) => {
       setIsGroupModalOpen(false);
       setActiveTaskGroupId(group.id);
-      loadTaskGroups(token);
+      setTaskGroups((current) => [...current, normalizeGroup(group)]);
     })
     .catch((error) => {
       console.error("Ошибка создания группы:", error);
@@ -1006,7 +1021,9 @@ function createTask(formData) {
               rawDate: taskPayload.start_datetime,
               groupId: selectedGroup?.id || null,
               groupName: selectedGroup?.name || null,
-              groupColor: selectedGroup?.color || null,
+              groupColor: selectedGroup?.color
+                ? canonicalGroupColor(selectedGroup.color)
+                : null,
               subtasks: (taskPayload.subtasks || []).map((subtask) =>
                 typeof subtask === "string"
                   ? {
@@ -1037,7 +1054,9 @@ function createTask(formData) {
     rawDate: taskPayload.start_datetime,
     groupId: selectedGroup?.id || null,
     groupName: selectedGroup?.name || null,
-    groupColor: selectedGroup?.color || null,
+    groupColor: selectedGroup?.color
+      ? canonicalGroupColor(selectedGroup.color)
+      : null,
     subtasks: (taskPayload.subtasks || []).map((title) => ({
       id: crypto.randomUUID(),
       title,
@@ -1313,6 +1332,8 @@ setTaskTimeSortDirection={setTaskTimeSortDirection}
   activePage={activePage}
   setActivePage={setActivePage}
   closeMobileMenu={() => setIsMobileMenuOpen(false)}
+  theme={theme}
+  onToggleTheme={handleToggleTheme}
 />
         {isMobileMenuOpen && (
           <div
@@ -1335,6 +1356,8 @@ setTaskTimeSortDirection={setTaskTimeSortDirection}
   isSidebarCollapsed={isSidebarCollapsed}
   setIsSidebarCollapsed={setIsSidebarCollapsed}
   closeMobileMenu={() => setIsMobileMenuOpen(false)}
+  theme={theme}
+  onToggleTheme={handleToggleTheme}
 />
 
         <main className="content">

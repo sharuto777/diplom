@@ -1,7 +1,10 @@
 import React, { useState } from "react";
 import PriorityIndicator from "../../components/common/PriorityIndicator";
+import { useAppTheme } from "../../hooks/useAppTheme";
+import { getGroupLabelStyles } from "../../utils/groupColors";
 
 function CalendarTaskItem({ task, deleteTask, markTaskDone }) {
+  const theme = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isCompleted = task.status === "Выполнена";
@@ -54,9 +57,7 @@ function CalendarTaskItem({ task, deleteTask, markTaskDone }) {
             {task.groupName && (
               <span
                 className="calendar-mini-task-group"
-                style={{
-                  "--task-group-color": task.groupColor || "#E6F8FA",
-                }}
+                style={getGroupLabelStyles(task.groupColor, theme)}
               >
                 {task.groupName}
               </span>

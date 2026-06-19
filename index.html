@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sunday</title>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("sunday-theme") === "dark") {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (error) {
+          // ignore storage errors
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

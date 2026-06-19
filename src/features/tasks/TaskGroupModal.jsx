@@ -1,17 +1,24 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SaveCheckIcon } from "../../components/common/Icons";
-
-const groupColors = [
-  "#FEE2E2",
-  "#FFEDD5",
-  "#FEF9C3",
-  "#DCFCE7",
-  "#E6F8FA",
-];
+import { useAppTheme } from "../../hooks/useAppTheme";
+import {
+  canonicalGroupColor,
+  getDefaultGroupColor,
+  getGroupColors,
+  resolveGroupColor,
+} from "../../utils/groupColors";
 
 function TaskGroupModal({ onClose, onSubmit, isSaving }) {
+  const theme = useAppTheme();
+  const groupColors = getGroupColors(theme);
   const [name, setName] = useState("");
-  const [selectedColor, setSelectedColor] = useState(groupColors[4]);
+  const [selectedColor, setSelectedColor] = useState(() =>
+    getDefaultGroupColor(theme)
+  );
+
+  useEffect(() => {
+    setSelectedColor((current) => resolveGroupColor(current, theme));
+  }, [theme]);
 
   const maxGroupNameLength = 20;
 
@@ -31,7 +38,7 @@ function TaskGroupModal({ onClose, onSubmit, isSaving }) {
 
     onSubmit({
       name: trimmedName,
-      color: selectedColor,
+      color: canonicalGroupColor(selectedColor),
     });
   }
 
@@ -92,7 +99,7 @@ function TaskGroupModal({ onClose, onSubmit, isSaving }) {
                     ? "group-color-dot active"
                     : "group-color-dot"
                 }
-                style={{ backgroundColor: color }}
+                style={{ background: color }}
                 onClick={() => setSelectedColor(color)}
                 aria-label="Выбрать цвет группы"
               />

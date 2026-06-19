@@ -1,5 +1,10 @@
 import React, { useState } from "react";
 import PriorityIndicator from "../../components/common/PriorityIndicator";
+import { useAppTheme } from "../../hooks/useAppTheme";
+import {
+  getGroupLabelStyles,
+  resolveGroupColor,
+} from "../../utils/groupColors";
 
 function TaskCard({
   task,
@@ -9,7 +14,14 @@ function TaskCard({
   deleteTask,
   openEditTaskModal,
 }) {
+  const theme = useAppTheme();
   const [isExpanded, setIsExpanded] = useState(false);
+  const groupLabelStyles = task.groupColor
+    ? getGroupLabelStyles(task.groupColor, theme)
+    : getGroupLabelStyles(null, theme);
+  const resolvedGroupColor = task.groupColor
+    ? resolveGroupColor(task.groupColor, theme)
+    : null;
 
   const isCompleted = task.status === "Выполнена";
   const hasDescription = Boolean(task.description && task.description.trim());
@@ -35,7 +47,8 @@ function TaskCard({
             : "task-card mini-task-card"
       }
       style={{
-        "--task-group-color": task.groupColor || "rgba(255, 255, 255, 0.64)",
+        "--task-group-color":
+          resolvedGroupColor || resolveGroupColor(null, theme),
       }}
       onClick={handleCardClick}
     >
@@ -70,9 +83,7 @@ function TaskCard({
             {task.groupName && (
               <span
                 className="task-group-label mini-task-group"
-                style={{
-                  "--task-group-color": task.groupColor || "#E6F8FA",
-                }}
+                style={groupLabelStyles}
               >
                 {task.groupName}
               </span>

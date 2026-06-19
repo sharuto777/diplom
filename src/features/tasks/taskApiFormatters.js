@@ -1,3 +1,5 @@
+import { canonicalGroupColor } from "../../utils/groupColors";
+
 export function formatPriority(priority) {
   const values = {
     low: "Низкий",
@@ -67,7 +69,9 @@ export function formatTaskFromApi(task) {
     repeatDays,
     groupId: task.group_id,
     groupName: task.group_name,
-    groupColor: task.group_color,
+    groupColor: task.group_color
+      ? canonicalGroupColor(task.group_color)
+      : null,
     muscle: task.muscle_group,
     exercises:
       task.exercises && task.exercises.length > 0

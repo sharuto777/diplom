@@ -6,6 +6,7 @@ import ProfileSettingsModal from "./ProfileSettingsModal";
 import ProfileFriendsBlock from "./ProfileFriendsBlock";
 import ProfileProgressCards from "./ProfileProgressCards";
 import ProfileSecurityBlock from "./ProfileSecurityBlock";
+import ProfilePremiumBlock from "./ProfilePremiumBlock";
 import {
   PremiumCrownIcon,
   LogoutSvgIcon,
@@ -88,6 +89,7 @@ function ProfilePage({
   setCurrentUser,
   subscription,
   isPremiumUser,
+  onOpenPremium,
   logout,
   showToast,
 }) {
@@ -356,10 +358,18 @@ async function removeAvatar() {
         <ProfileProgressCards pedantTracker={profileTracker} />
 
         {!isViewingFriendProfile && (
-          <ProfileSecurityBlock
-            currentUser={currentUser}
-            onEdit={setSecurityModal}
-          />
+          <>
+            <ProfileSecurityBlock
+              currentUser={currentUser}
+              onEdit={setSecurityModal}
+            />
+
+            <ProfilePremiumBlock
+              subscription={subscription}
+              isPremiumUser={isPremiumUser}
+              onOpenPremium={onOpenPremium}
+            />
+          </>
         )}
       </div>
 

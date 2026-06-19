@@ -1266,6 +1266,7 @@ case "Моя тренировка":
       setCurrentUser={setCurrentUser}
       subscription={subscription}
       isPremiumUser={isPremiumUser}
+      onOpenPremium={() => setIsPremiumModalOpen(true)}
       logout={logout}
       showToast={showToast}
     />

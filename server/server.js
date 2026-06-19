@@ -3763,6 +3763,71 @@ app.get("/api/friends", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/friends/search", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const query = String(req.query.q || "").trim();
+
+    if (!query) {
+      return res.json({ users: [] });
+    }
+
+    const searchResult = await pool.query(
+      `
+      SELECT
+        u.id,
+        u.username,
+        u.avatar_url,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM user_friends uf
+            WHERE uf.user_id = $1
+              AND uf.friend_id = u.id
+          ) THEN 'friend'
+          WHEN EXISTS (
+            SELECT 1
+            FROM friend_requests fr
+            WHERE fr.status = 'pending'
+              AND fr.sender_id = $1
+              AND fr.receiver_id = u.id
+          ) THEN 'pending_sent'
+          WHEN EXISTS (
+            SELECT 1
+            FROM friend_requests fr
+            WHERE fr.status = 'pending'
+              AND fr.sender_id = u.id
+              AND fr.receiver_id = $1
+          ) THEN 'pending_received'
+          ELSE 'none'
+        END AS relationship_status
+      FROM users u
+      WHERE u.id <> $1
+        AND u.username ILIKE '%' || $2 || '%'
+      ORDER BY u.username ASC
+      LIMIT 8
+      `,
+      [userId, query]
+    );
+
+    res.json({
+      users: searchResult.rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        avatar_url: row.avatar_url,
+        relationshipStatus: row.relationship_status,
+      })),
+    });
+  } catch (error) {
+    console.error("Ошибка поиска пользователей:", error);
+
+    res.status(500).json({
+      error: "Ошибка поиска пользователей",
+      message: error.message,
+    });
+  }
+});
+
 app.post("/api/friends/requests", authMiddleware, async (req, res) => {
   try {
     const senderId = req.user.id;

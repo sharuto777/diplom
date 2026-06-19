@@ -1,18 +1,17 @@
 import React, { useState } from "react";
 import { SaveCheckIcon } from "../../components/common/Icons";
 
+const groupColors = [
+  "#FEE2E2",
+  "#FFEDD5",
+  "#FEF9C3",
+  "#DCFCE7",
+  "#E6F8FA",
+];
+
 function CreateExerciseGroupModal({ onClose, onSave }) {
   const [name, setName] = useState("");
-  const [color, setColor] = useState("#E6F8FA");
-
-  const colors = [
-    "#E6F8FA",
-    "#ECFDF5",
-    "#FFFBEB",
-    "#F5F3FF",
-    "#FEF2F2",
-    "#EFF6FF",
-  ];
+  const [color, setColor] = useState(groupColors[4]);
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -75,7 +74,7 @@ function CreateExerciseGroupModal({ onClose, onSave }) {
           <span>Цвет группы</span>
 
           <div className="group-color-palette">
-            {colors.map((item) => (
+            {groupColors.map((item) => (
               <button
                 key={item}
                 type="button"

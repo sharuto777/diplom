@@ -33,6 +33,8 @@ function WorkoutsPage({
   muscleGroups = [],
   onWorkoutCreated,
     showToast,
+  isPremiumUser = false,
+  onOpenPremium,
 }) {
   const workouts = tasks.filter((task) => task.category === "Тренировка");
 const [activeExerciseGroupId, setActiveExerciseGroupId] = useState("all");
@@ -317,10 +319,24 @@ setWorkingWeights((current) =>
     });
 }
 
+  function handleCreateExerciseClick() {
+    if (!isPremiumUser) {
+      onOpenPremium?.();
+      return;
+    }
+
+    setIsExerciseCreateModalOpen(true);
+  }
+
   function createCustomExercise(exerciseData) {
   const token = localStorage.getItem("token");
 
   if (!token) {
+    return;
+  }
+
+  if (!isPremiumUser) {
+    onOpenPremium?.();
     return;
   }
 
@@ -1235,8 +1251,12 @@ function loadUserExercisesForWorkout(setAvailableExercises) {
 
     <button
       type="button"
-      className="training-action-btn"
-      onClick={() => setIsExerciseCreateModalOpen(true)}
+      className={
+        isPremiumUser
+          ? "training-action-btn"
+          : "training-action-btn premium-locked"
+      }
+      onClick={handleCreateExerciseClick}
     >
       + Упражнение
     </button>
@@ -1247,7 +1267,7 @@ function loadUserExercisesForWorkout(setAvailableExercises) {
       <button
         type="button"
         className="working-weights-list-empty"
-        onClick={() => setIsExerciseCreateModalOpen(true)}
+        onClick={handleCreateExerciseClick}
       >
         <strong>Упражнения не найдены</strong>
         <span>Создайте своё упражнение или измените поиск.</span>
@@ -1433,6 +1453,8 @@ function loadUserExercisesForWorkout(setAvailableExercises) {
   workingWeights={workingWeights}
   initialData={editingMyWorkout}
   showToast={showToast}
+  isPremiumUser={isPremiumUser}
+  onOpenPremium={onOpenPremium}
   onClose={() => {
     setIsMyWorkoutModalOpen(false);
     setEditingMyWorkout(null);
@@ -1549,6 +1571,8 @@ function loadUserExercisesForWorkout(setAvailableExercises) {
         <WorkingWeightModal
           initialData={editingWorkingWeight}
           exercises={availableExercises}
+          isPremiumUser={isPremiumUser}
+          onOpenPremium={onOpenPremium}
           onClose={closeWorkingWeightModal}
           onSave={saveWorkingWeight}
           onDelete={deleteWorkingWeight}

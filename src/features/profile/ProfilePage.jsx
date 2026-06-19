@@ -10,6 +10,7 @@ import {
   PremiumCrownIcon,
   LogoutSvgIcon,
   ProfileSvgIcon,
+  AvatarEditIcon,
 } from "../../components/common/Icons";
 
 function formatProfileJoinDate(dateValue) {
@@ -297,7 +298,7 @@ async function removeAvatar() {
                   />
 
                   <div className="profile-top-avatar-edit">
-                    <ProfileSvgIcon name="edit" />
+                    <AvatarEditIcon />
                   </div>
                 </>
               )}

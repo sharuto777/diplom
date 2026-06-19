@@ -347,8 +347,37 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
   const muscleGroups = statistics?.workouts?.byMuscleGroup || buildLocalMuscleGroups(workoutTasks);
   const progress = statistics?.progress || [];
 
+  const locked = !isPremiumUser;
+
+  const displayOverview = locked
+    ? {
+        taskCompletionRate: "••",
+        completedTasks: "•",
+        totalTasks: "••",
+        completedWorkouts: "•",
+        activeDaysStreak: "••",
+        trainingVolume: "••••",
+        bestProgress: null,
+        weekDiffPercent: 0,
+      }
+    : overview;
+
+  const displayInsight = locked
+    ? "•••• ••••• ••••••• ••"
+    : (statistics?.insight || getLocalStatsInsight(overview));
+
+  const displayMuscleGroups = locked
+    ? muscleGroups.map((g, i) => ({
+        ...g,
+        workoutsCount: 2 + (i % 3),
+        volume: 650 + i * 80,
+      }))
+    : muscleGroups;
+
+  const displayProgress = locked ? [] : progress;
+
   return (
-    <section className="stats-page-premium-wrap">
+    <section className={`stats-page-premium-wrap ${locked ? 'premium-locked' : ''}`}>
       <PageHeader
         title="Статистика"
         subtitle="Прогресс задач, тренировок, активности и рабочих весов."
@@ -381,8 +410,9 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
           className={
             isPremiumUser
               ? "stats-premium-content"
-              : "stats-premium-content locked"
+              : "stats-premium-content locked no-scroll"
           }
+          style={locked ? { maxHeight: '420px', overflow: 'hidden' } : {}}
         >
           {isStatsLoading && (
             <div className="stats-loading-card">
@@ -401,39 +431,39 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
           <div className="stats-hero-grid">
             <StatCard
               title="Выполнение задач"
-              value={`${overview.taskCompletionRate}%`}
+              value={`${displayOverview.taskCompletionRate}%`}
               icon="target"
             />
 
             <StatCard
               title="Выполнено задач"
-              value={`${overview.completedTasks}/${overview.totalTasks}`}
+              value={`${displayOverview.completedTasks}/${displayOverview.totalTasks}`}
               icon="checklist"
             />
 
             <StatCard
               title="Тренировки"
-              value={overview.completedWorkouts}
+              value={displayOverview.completedWorkouts}
               icon="dumbbell"
             />
 
             <StatCard
               title="Серия активности"
-              value={`${overview.activeDaysStreak} дн.`}
+              value={`${displayOverview.activeDaysStreak} дн.`}
               icon="flame"
             />
 
             <StatCard
               title="Объём нагрузки"
-              value={`${formatCompactNumber(overview.trainingVolume)} кг`}
+              value={`${formatCompactNumber(displayOverview.trainingVolume)} кг`}
               icon="weight"
             />
 
             <StatCard
               title="Лучший прогресс"
               value={
-                overview.bestProgress
-                  ? `+${formatStatNumber(overview.bestProgress.progress)} кг`
+                displayOverview.bestProgress
+                  ? `+${formatStatNumber(displayOverview.bestProgress.progress)} кг`
                   : "—"
               }
               icon="trending"
@@ -443,7 +473,7 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
           <div className="stats-insight-card">
             <div>
               <span>Вывод недели</span>
-              <h3>{statistics?.insight || getLocalStatsInsight(overview)}</h3>
+              <h3>{displayInsight}</h3>
             </div>
 
             <div className="stats-week-diff">
@@ -492,7 +522,7 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
                           />
                         </div>
 
-                        <strong>{value}</strong>
+                        <strong>{locked ? '•' : value}</strong>
                         <p>{formatWeekDay(day.date)}</p>
                       </div>
                     );
@@ -518,14 +548,14 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
                     "--progress": `${overview.taskCompletionRate}%`,
                   }}
                 >
-                  <strong>{overview.taskCompletionRate}%</strong>
+                  <strong>{displayOverview.taskCompletionRate}%</strong>
                 </div>
 
                 <div>
                   <p>Выполнено</p>
                   <strong>
-                    {statistics?.tasks?.completed || overview.completedTasks} из{" "}
-                    {statistics?.tasks?.total || overview.totalTasks}
+                    {locked ? '•' : (statistics?.tasks?.completed || displayOverview.completedTasks)} из{" "}
+                    {locked ? '••' : (statistics?.tasks?.total || displayOverview.totalTasks)}
                   </strong>
                 </div>
               </div>
@@ -533,19 +563,19 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
               <div className="stats-mini-list">
                 <StatsMiniRow
                   label="В процессе"
-                  value={statistics?.tasks?.inProgress || 0}
+                  value={locked ? '•' : (statistics?.tasks?.inProgress || 0)}
                 />
                 <StatsMiniRow
                   label="Запланировано"
-                  value={statistics?.tasks?.planned || 0}
+                  value={locked ? '••' : (statistics?.tasks?.planned || 0)}
                 />
                 <StatsMiniRow
                   label="Просрочено / отменено"
-                  value={statistics?.tasks?.missed || 0}
+                  value={locked ? '•' : (statistics?.tasks?.missed || 0)}
                 />
                 <StatsMiniRow
                   label="Высокий приоритет"
-                  value={statistics?.tasks?.highPriority || 0}
+                  value={locked ? '•' : (statistics?.tasks?.highPriority || 0)}
                 />
               </div>
             </article>
@@ -562,14 +592,14 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
 
               {muscleGroups.length > 0 ? (
                 <div className="stats-muscle-list">
-                  {muscleGroups.map((group) => (
+                  {displayMuscleGroups.map((group) => (
                     <StatsBarRow
                       key={group.name}
                       label={group.name}
                       value={group.workoutsCount}
                       caption={`${formatCompactNumber(group.volume)} кг объёма`}
                       maxValue={Math.max(
-                        ...muscleGroups.map((item) => item.workoutsCount),
+                        ...displayMuscleGroups.map((item) => item.workoutsCount),
                         1
                       )}
                     />
@@ -588,9 +618,9 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
                 </div>
               </div>
 
-              {progress.length > 0 ? (
+              {displayProgress.length > 0 ? (
                 <div className="stats-progress-list">
-                  {progress.map((item) => (
+                  {displayProgress.map((item) => (
                     <div className="stats-progress-item" key={item.exerciseName}>
                       <div>
                         <strong>{item.exerciseName}</strong>
@@ -605,7 +635,7 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
                   ))}
                 </div>
               ) : (
-                <StatsEmptyText text="Добавь историю рабочих весов, чтобы увидеть прогресс." />
+                <StatsEmptyText text={locked ? "•••• ••••• ••••••" : "Добавь историю рабочих весов, чтобы увидеть прогресс."} />
               )}
             </article>
           </div>
@@ -623,10 +653,10 @@ function StatsPage({ tasks, currentUser, isPremiumUser, onOpenPremium }) {
                 {activityMap.map((day) => (
                   <div
                     key={String(day.date)}
-                    className={`stats-activity-day level-${getActivityLevel(
+                    className={`stats-activity-day level-${locked ? 1 : getActivityLevel(
                       day.completedItems
                     )}`}
-                    title={`${formatShortDate(day.date)} · выполнено: ${day.completedItems}`}
+                    title={locked ? '•••' : `${formatShortDate(day.date)} · выполнено: ${day.completedItems}`}
                   />
                 ))}
               </div>

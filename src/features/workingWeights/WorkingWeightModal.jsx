@@ -9,6 +9,8 @@ import {
 function WorkingWeightModal({
   initialData,
   exercises,
+  isPremiumUser = false,
+  onOpenPremium,
   onClose,
   onSave,
   onDelete,
@@ -95,12 +97,35 @@ function WorkingWeightModal({
     setIsExerciseListOpen(true);
   }
 
+  function findExerciseByName(name) {
+    const normalizedName = String(name || "").trim().toLowerCase();
+
+    if (!normalizedName) {
+      return null;
+    }
+
+    return (
+      exerciseOptions.find(
+        (exercise) =>
+          String(exercise.name || "").trim().toLowerCase() === normalizedName
+      ) || null
+    );
+  }
+
   function handleSave(event) {
     event.preventDefault();
 
     const trimmedExerciseName = exerciseName.trim();
 
     if (!trimmedExerciseName) {
+      return;
+    }
+
+    const isCreatingCustomExercise =
+      exerciseId === null && !findExerciseByName(trimmedExerciseName);
+
+    if (isCreatingCustomExercise && !isPremiumUser) {
+      onOpenPremium?.();
       return;
     }
 
@@ -183,7 +208,9 @@ function WorkingWeightModal({
             <div className="exercise-autocomplete-list">
               {filteredExercises.length === 0 ? (
                 <div className="exercise-autocomplete-empty">
-                  Упражнение не найдено. Можно сохранить своё название.
+                  {isPremiumUser
+                    ? "Упражнение не найдено. Можно сохранить своё название."
+                    : "Упражнение не найдено. Своё название доступно с Premium."}
                 </div>
               ) : (
                 filteredExercises.map((exercise) => (

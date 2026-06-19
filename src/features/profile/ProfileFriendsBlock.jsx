@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { API_URL } from "../../api/apiClient";
-import { PremiumCrownIcon } from "../../components/common/Icons";
+import { PremiumCrownIcon, SaveCheckIcon } from "../../components/common/Icons";
 
 function ProfileFriendsBlock({
   currentUser,

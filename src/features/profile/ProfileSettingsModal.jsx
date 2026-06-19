@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { SaveCheckIcon } from "../../components/common/Icons";
+import { ProfileSvgIcon } from "../../components/common/Icons";
 import { API_URL } from "../../api/apiClient";
 
 function ProfileSettingsModal({ currentUser, onClose }) {

@@ -7,6 +7,8 @@ function MyWorkoutCreateModal({
   workingWeights = [],
   initialData = null,
   showToast,
+  isPremiumUser = false,
+  onOpenPremium,
   onClose,
   onSave,
 }) {
@@ -262,6 +264,26 @@ function MyWorkoutCreateModal({
     setIsExerciseSuggestOpen(false);
   }
 
+  function findExerciseByName(name) {
+    const normalizedName = String(name || "").trim().toLowerCase();
+
+    if (!normalizedName) {
+      return null;
+    }
+
+    return (
+      availableExercises.find(
+        (exercise) =>
+          String(exercise.name || "").trim().toLowerCase() === normalizedName
+      ) || null
+    );
+  }
+
+  const typedExerciseName = exerciseSearch.trim();
+  const typedExistingExercise = findExerciseByName(typedExerciseName);
+  const isCustomExercisePremiumLocked =
+    !isPremiumUser && Boolean(typedExerciseName) && !typedExistingExercise;
+
   function addTypedExercise() {
     const exerciseName = exerciseSearch.trim();
 
@@ -269,14 +291,15 @@ function MyWorkoutCreateModal({
       return;
     }
 
-    const existingExercise = availableExercises.find(
-      (exercise) =>
-        String(exercise.name || "").trim().toLowerCase() ===
-        exerciseName.toLowerCase()
-    );
+    const existingExercise = findExerciseByName(exerciseName);
 
     if (existingExercise) {
       addExerciseFromBase(existingExercise);
+      return;
+    }
+
+    if (!isPremiumUser) {
+      onOpenPremium?.();
       return;
     }
 
@@ -490,7 +513,11 @@ function MyWorkoutCreateModal({
 
               <button
                 type="button"
-                className="subtask-add-minimal-btn my-workout-add-btn"
+                className={
+                  isCustomExercisePremiumLocked
+                    ? "subtask-add-minimal-btn my-workout-add-btn premium-locked"
+                    : "subtask-add-minimal-btn my-workout-add-btn"
+                }
                 onClick={addTypedExercise}
               >
                 + Упражнение

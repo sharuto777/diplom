@@ -6,17 +6,12 @@ const groupColors = [
   "#FFEDD5",
   "#FEF9C3",
   "#DCFCE7",
-  "#CCFBF1",
   "#E6F8FA",
-  "#DBEAFE",
-  "#EDE9FE",
-  "#FCE7F3",
-  "#F1F5F9",
 ];
 
 function TaskGroupModal({ onClose, onSubmit, isSaving }) {
   const [name, setName] = useState("");
-  const [selectedColor, setSelectedColor] = useState(groupColors[5]);
+  const [selectedColor, setSelectedColor] = useState(groupColors[4]);
 
   const maxGroupNameLength = 20;
 

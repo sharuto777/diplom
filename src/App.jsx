@@ -31,19 +31,6 @@ import WorkoutModal from "./features/workouts/WorkoutModal";
 
 import { API_URL } from "./api/apiClient"
 
-const groupColors = [
-  "#FEE2E2", // мягкий красный
-  "#FFEDD5", // мягкий оранжевый
-  "#FEF9C3", // мягкий жёлтый
-  "#DCFCE7", // мягкий зелёный
-  "#CCFBF1", // мягкий бирюзовый
-  "#E6F8FA", // основной голубой
-  "#DBEAFE", // мягкий синий
-  "#EDE9FE", // мягкий фиолетовый
-  "#FCE7F3", // мягкий розовый
-  "#F1F5F9", // мягкий серый
-];
-
 const menuItems = [
   "Задачи",
   "Календарь",
@@ -1197,6 +1184,8 @@ setIsTaskModalOpen(false);
       workingWeights={workingWeights}
       setWorkingWeights={setWorkingWeights}
       showToast={showToast}
+      isPremiumUser={isPremiumUser}
+      onOpenPremium={() => setIsPremiumModalOpen(true)}
     />
   );
 
@@ -1216,6 +1205,8 @@ case "Гайды":
       setWorkingWeights={setWorkingWeights}
       muscleGroups={muscleGroups}
       onWorkoutCreated={() => loadTasks(localStorage.getItem("token"))}
+      isPremiumUser={isPremiumUser}
+      onOpenPremium={() => setIsPremiumModalOpen(true)}
     />
   );
 
@@ -1234,6 +1225,8 @@ case "Моя тренировка":
       setWorkingWeights={setWorkingWeights}
       muscleGroups={muscleGroups}
       onWorkoutCreated={() => loadTasks(localStorage.getItem("token"))}
+      isPremiumUser={isPremiumUser}
+      onOpenPremium={() => setIsPremiumModalOpen(true)}
     />
   );
 
@@ -1378,6 +1371,8 @@ setTaskTimeSortDirection={setTaskTimeSortDirection}
   }}
   onSubmit={createTask}
   isSaving={isSavingTask}
+  isPremiumUser={isPremiumUser}
+  onOpenPremium={() => setIsPremiumModalOpen(true)}
 />
       )}
 

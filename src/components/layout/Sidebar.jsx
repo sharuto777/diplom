@@ -1,6 +1,7 @@
 import React from "react";
 import AppLogo from "../AppLogo";
 import { PremiumCrownIcon, MenuSvgIcon } from "../common/Icons";
+import { API_URL } from "../../api/apiClient";
 
 const menuGroups = [
   {
@@ -60,6 +61,17 @@ function Sidebar({
   function handlePageClick(page) {
     setActivePage(page);
     closeMobileMenu?.();
+  }
+
+  function getUserAvatar(user) {
+    if (!user) return "";
+    const avatar = user.avatar_url || user.avatarUrl || "";
+    if (avatar && (avatar.startsWith("/uploads") || avatar.startsWith("uploads"))) {
+      const base = API_URL.replace("/api", "");
+      const path = avatar.startsWith("/") ? avatar : `/${avatar}`;
+      return `${base}${path}`;
+    }
+    return avatar;
   }
 
   return (
@@ -173,23 +185,38 @@ function Sidebar({
         <button
           type="button"
           className="sidebar-premium-new"
-          onClick={onOpenPremium}
+          onClick={() => onOpenPremium?.()}
         >
-          <span>
+          <div className="sidebar-premium-icon">
             <PremiumCrownIcon />
-          </span>
-
-          <strong>Premium</strong>
-          <p>Расширенная статистика и больше возможностей</p>
+          </div>
+          <div className="sidebar-premium-content">
+            <div className="sidebar-premium-title">Premium</div>
+            <div className="sidebar-premium-desc">
+              Полный доступ к статистике и функциям
+            </div>
+          </div>
         </button>
       )}
 
       {currentUser && (
-        <div className="sidebar-user-new">
+        <div
+          className="sidebar-user-new"
+          onClick={() => handlePageClick("Профиль")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handlePageClick("Профиль");
+            }
+          }}
+          style={{ cursor: "pointer" }}
+        >
           <div className="sidebar-user-avatar">
             {currentUser.avatar_url ? (
               <img
-                src={currentUser.avatar_url}
+                src={getUserAvatar(currentUser)}
                 alt={currentUser.username || "Профиль"}
               />
             ) : (

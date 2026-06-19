@@ -1,5 +1,25 @@
 import React from "react";
 
+const strokePath = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+};
+
+function StrokeSvg({ className, children }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {children}
+    </svg>
+  );
+}
+
+function StrokePath({ d }) {
+  return <path d={d} {...strokePath} />;
+}
+
 export function SaveCheckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -108,134 +128,227 @@ export function PremiumCrownIcon() {
   );
 }
 
-export function ProfileSvgIcon({ type }) {
+export function AvatarEditIcon() {
+  return (
+    <StrokeSvg className="menu-icon-svg">
+      <StrokePath d="M4 8H7L8.5 6H15.5L17 8H20V18H4V8Z" />
+      <StrokePath d="M12 15C13.66 15 15 13.66 15 12C15 10.34 13.66 9 12 9C10.34 9 9 10.34 9 12C9 13.66 10.34 15 12 15Z" />
+    </StrokeSvg>
+  );
+}
+
+export function ProfileSvgIcon({ name, type }) {
+  const iconName = name || type || "activity";
+
   const icons = {
     activity: (
       <>
-        <path d="M4 19V13" />
-        <path d="M10 19V8" />
-        <path d="M16 19V5" />
-        <path d="M22 19H2" />
+        <StrokePath d="M3 20H21" />
+        <StrokePath d="M6 20V14" />
+        <StrokePath d="M11 20V10" />
+        <StrokePath d="M16 20V6" />
       </>
     ),
 
     tasks: (
       <>
-        <path d="M8 6H20" />
-        <path d="M8 12H20" />
-        <path d="M8 18H20" />
-        <path d="M4 6H4.01" />
-        <path d="M4 12H4.01" />
-        <path d="M4 18H4.01" />
+        <StrokePath d="M8 6H20" />
+        <StrokePath d="M8 12H20" />
+        <StrokePath d="M8 18H20" />
+        <StrokePath d="M4 6H4.01" />
+        <StrokePath d="M4 12H4.01" />
+        <StrokePath d="M4 18H4.01" />
       </>
     ),
 
     workouts: (
       <>
-        <path d="M6 20V10" />
-        <path d="M12 20V4" />
-        <path d="M18 20V14" />
+        <StrokePath d="M6 20V10" />
+        <StrokePath d="M12 20V4" />
+        <StrokePath d="M18 20V14" />
       </>
     ),
 
     premium: (
       <>
-        <path d="M4 18H20" />
-        <path d="M5 18L7 7L12 12L17 7L19 18" />
-        <path d="M8 21H16" />
+        <StrokePath d="M4 18H20" />
+        <StrokePath d="M5 18L7 7L12 12L17 7L19 18" />
+        <StrokePath d="M8 21H16" />
       </>
     ),
 
     fire: (
       <>
-        <path d="M12.4 21C8.8 21 6 18.4 6 15C6 12.7 7.2 10.8 8.8 9.3C10.3 7.9 11 6.3 10.8 4C13.4 5.4 15.1 7.5 15.4 10.1C16.1 9.4 16.5 8.5 16.6 7.5C18.3 9 19 11.2 19 13.5C19 17.8 16.2 21 12.4 21Z" />
-        <path d="M12.2 18C10.6 18 9.4 16.8 9.4 15.3C9.4 14.1 10.1 13.2 11 12.4C11.8 11.7 12.2 10.9 12.1 9.8C13.6 10.7 14.5 12 14.5 13.5C15 13.1 15.3 12.6 15.4 12C16.2 12.8 16.6 13.9 16.6 15C16.6 16.8 14.9 18 12.2 18Z" />
+        <StrokePath d="M12 22C8.7 22 6 19.4 6 16.1C6 13.7 7.4 11.7 9.2 10.3C10.6 9.2 11.6 7.7 11.4 5.5C13.7 7 16 9.7 16 13C17 12.2 17.6 11.1 17.8 9.8C19.2 11.3 20 13.4 20 15.7C20 19.2 16.6 22 12 22Z" />
+        <StrokePath d="M12 18.8C10.5 18.8 9.4 17.7 9.4 16.3C9.4 15.1 10.1 14.2 11.1 13.4C11.9 12.8 12.4 11.9 12.3 10.9C13.7 11.8 14.8 13.1 14.8 14.8C14.8 17 13.5 18.8 12 18.8Z" />
       </>
     ),
 
     rank: (
+      <StrokePath d="M12 3L14.1 8.26L20 9.27L15.55 14.14L16.82 21.02L12 17.77L7.18 21.02L8.45 14.14L4 9.27L9.9 8.26L12 3Z" />
+    ),
+
+    star: (
+      <StrokePath d="M12 3L14.1 8.26L20 9.27L15.55 14.14L16.82 21.02L12 17.77L7.18 21.02L8.45 14.14L4 9.27L9.9 8.26L12 3Z" />
+    ),
+
+    "shiny-star": (
       <>
-        <path d="M12 3L14.7 8.4L20.7 9.3L16.4 13.5L17.4 19.5L12 16.7L6.6 19.5L7.6 13.5L3.3 9.3L9.3 8.4L12 3Z" />
-        <path d="M12 8.2L13.2 10.6L15.9 11L14 12.9L14.4 15.5L12 14.3L9.6 15.5L10 12.9L8.1 11L10.8 10.6L12 8.2Z" />
+        <StrokePath d="M12 3L14.1 8.26L20 9.27L15.55 14.14L16.82 21.02L12 17.77L7.18 21.02L8.45 14.14L4 9.27L9.9 8.26L12 3Z" />
+        <StrokePath d="M19 4L19.5 5.5L21 6L19.5 6.5L19 8L18.5 6.5L17 6L18.5 5.5L19 4Z" />
+      </>
+    ),
+
+    edit: (
+      <>
+        <StrokePath d="M4 8H7L8.5 6H15.5L17 8H20V18H4V8Z" />
+        <StrokePath d="M12 15C13.66 15 15 13.66 15 12C15 10.34 13.66 9 12 9C10.34 9 9 10.34 9 12C9 13.66 10.34 15 12 15Z" />
+      </>
+    ),
+
+    user: (
+      <>
+        <StrokePath d="M12 12C13.66 12 15 10.66 15 9C15 7.34 13.66 6 12 6C10.34 6 9 7.34 9 9C9 10.66 10.34 12 12 12Z" />
+        <StrokePath d="M5 20C5.6 17.2 8.5 15 12 15C15.5 15 18.4 17.2 19 20" />
+      </>
+    ),
+
+    mail: (
+      <>
+        <StrokePath d="M4 6H20V18H4V6Z" />
+        <StrokePath d="M4 7L12 13L20 7" />
       </>
     ),
   };
 
   return (
-    <svg className="profile-svg-icon" viewBox="0 0 24 24" aria-hidden="true">
-      {icons[type] || icons.activity}
-    </svg>
+    <StrokeSvg className="menu-icon-svg profile-svg-icon">
+      {icons[iconName] || icons.activity}
+    </StrokeSvg>
   );
 }
 
 export function MenuSvgIcon({ name }) {
   const icons = {
-    "Задачи": (
+    Задачи: (
       <>
-        <path d="M8 6H20" />
-        <path d="M8 12H20" />
-        <path d="M8 18H20" />
-        <path d="M4 6H4.01" />
-        <path d="M4 12H4.01" />
-        <path d="M4 18H4.01" />
+        <StrokePath d="M8 6H20" />
+        <StrokePath d="M8 12H20" />
+        <StrokePath d="M8 18H20" />
+        <StrokePath d="M4 6H4.01" />
+        <StrokePath d="M4 12H4.01" />
+        <StrokePath d="M4 18H4.01" />
       </>
     ),
 
-    "Календарь": (
+    Календарь: (
       <>
-        <path d="M7 3V6" />
-        <path d="M17 3V6" />
-        <path d="M4 8H20" />
-        <path d="M5 5H19V20H5V5Z" />
+        <StrokePath d="M7 3V6" />
+        <StrokePath d="M17 3V6" />
+        <StrokePath d="M4 8H20" />
+        <StrokePath d="M5 5H19V20H5V5Z" />
       </>
     ),
 
     "Рабочие веса": (
       <>
-        <path d="M6 9V15" />
-        <path d="M18 9V15" />
-        <path d="M3 10.5V13.5" />
-        <path d="M21 10.5V13.5" />
-        <path d="M6 12H18" />
+        <StrokePath d="M6 9V15" />
+        <StrokePath d="M18 9V15" />
+        <StrokePath d="M3 10.5V13.5" />
+        <StrokePath d="M21 10.5V13.5" />
+        <StrokePath d="M6 12H18" />
       </>
     ),
 
-    "Гайды": (
+    Гайды: (
       <>
-        <path d="M5 4H15C17.2 4 19 5.8 19 8V20H7C5.9 20 5 19.1 5 18V4Z" />
-        <path d="M9 8H15" />
-        <path d="M9 12H15" />
+        <StrokePath d="M5 4H15C17.2 4 19 5.8 19 8V20H7C5.9 20 5 19.1 5 18V4Z" />
+        <StrokePath d="M9 8H15" />
+        <StrokePath d="M9 12H15" />
       </>
     ),
 
     "Моя тренировка": (
       <>
-        <path d="M6 20V10" />
-        <path d="M12 20V4" />
-        <path d="M18 20V14" />
+        <StrokePath d="M6 20V10" />
+        <StrokePath d="M12 20V4" />
+        <StrokePath d="M18 20V14" />
       </>
     ),
 
-    "Статистика": (
+    Статистика: (
       <>
-        <path d="M4 19V13" />
-        <path d="M10 19V8" />
-        <path d="M16 19V5" />
-        <path d="M22 19H2" />
+        <StrokePath d="M3 20H21" />
+        <StrokePath d="M6 20V14" />
+        <StrokePath d="M11 20V10" />
+        <StrokePath d="M16 20V6" />
       </>
     ),
 
-    "Профиль": (
+    Профиль: (
       <>
-        <path d="M12 12C14.2 12 16 10.2 16 8C16 5.8 14.2 4 12 4C9.8 4 8 5.8 8 8C8 10.2 9.8 12 12 12Z" />
-        <path d="M4 20C4.8 16.7 7.8 15 12 15C16.2 15 19.2 16.7 20 20" />
+        <StrokePath d="M12 12C13.66 12 15 10.66 15 9C15 7.34 13.66 6 12 6C10.34 6 9 7.34 9 9C9 10.66 10.34 12 12 12Z" />
+        <StrokePath d="M5 20C5.6 17.2 8.5 15 12 15C15.5 15 18.4 17.2 19 20" />
       </>
     ),
   };
 
   return (
-    <svg className="menu-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
-      {icons[name] || icons["Задачи"]}
+    <StrokeSvg className="menu-icon-svg">
+      {icons[name] || icons.Задачи}
+    </StrokeSvg>
+  );
+}
+
+export function StreakFireIcon({ className = "", size = 24 }) {
+  const gradientId = React.useId().replace(/:/g, "");
+
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <linearGradient
+          id={`streak-fire-body-${gradientId}`}
+          x1="12"
+          y1="5"
+          x2="12"
+          y2="22"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#FBBF24" />
+          <stop offset="55%" stopColor="#F97316" />
+          <stop offset="100%" stopColor="#EF4444" />
+        </linearGradient>
+        <linearGradient
+          id={`streak-fire-core-${gradientId}`}
+          x1="12"
+          y1="11"
+          x2="12"
+          y2="19"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#FEF9C3" />
+          <stop offset="100%" stopColor="#FDE047" />
+        </linearGradient>
+      </defs>
+
+      <path
+        d="M12 22C8.7 22 6 19.4 6 16.1C6 13.7 7.4 11.7 9.2 10.3C10.6 9.2 11.6 7.7 11.4 5.5C13.7 7 16 9.7 16 13C17 12.2 17.6 11.1 17.8 9.8C19.2 11.3 20 13.4 20 15.7C20 19.2 16.6 22 12 22Z"
+        fill={`url(#streak-fire-body-${gradientId})`}
+      />
+
+      <path
+        d="M12 18.8C10.5 18.8 9.4 17.7 9.4 16.3C9.4 15.1 10.1 14.2 11.1 13.4C11.9 12.8 12.4 11.9 12.3 10.9C13.7 11.8 14.8 13.1 14.8 14.8C14.8 17 13.5 18.8 12 18.8Z"
+        fill={`url(#streak-fire-core-${gradientId})`}
+      />
     </svg>
   );
 }

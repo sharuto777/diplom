@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { SaveCheckIcon } from "../../components/common/Icons";
-import { toDateInputValue } from "../../utils/dateUtils";
+
+const FREE_SUBTASK_LIMIT = 3;
+const PREMIUM_SUBTASK_LIMIT = 7;
 
 function TaskModal({
   initialDate = null,
@@ -8,6 +10,8 @@ function TaskModal({
   onClose,
   onSubmit,
   isSaving = false,
+  isPremiumUser = false,
+  onOpenPremium,
 }) {
   const isDateLocked = Boolean(initialDate);
 
@@ -38,6 +42,17 @@ function TaskModal({
 });
 
   const todayString = new Date().toISOString().split("T")[0];
+  const maxSubtasks = isPremiumUser ? PREMIUM_SUBTASK_LIMIT : FREE_SUBTASK_LIMIT;
+  const subtasksCount = (form.subtasks || []).length;
+  const isSubtaskPremiumLocked =
+    !isPremiumUser && subtasksCount >= FREE_SUBTASK_LIMIT;
+  const canAddMoreSubtasks = isPremiumUser
+    ? subtasksCount < PREMIUM_SUBTASK_LIMIT
+    : subtasksCount < FREE_SUBTASK_LIMIT;
+  const showSubtaskAddButton =
+    isPremiumUser
+      ? subtasksCount < PREMIUM_SUBTASK_LIMIT
+      : subtasksCount < PREMIUM_SUBTASK_LIMIT;
 
   function updateField(field, value) {
     setForm((currentForm) => ({
@@ -46,20 +61,21 @@ function TaskModal({
     }));
   }
 
-  function addSubtaskField() {
-  setForm((currentForm) => {
-    const currentSubtasks = currentForm.subtasks || [];
-
-    if (currentSubtasks.length >= 7) {
-      return currentForm;
+  function handleAddSubtask() {
+    if (isSubtaskPremiumLocked) {
+      onOpenPremium?.();
+      return;
     }
 
-    return {
+    if (!canAddMoreSubtasks) {
+      return;
+    }
+
+    setForm((currentForm) => ({
       ...currentForm,
-      subtasks: [...currentSubtasks, ""],
-    };
-  });
-}
+      subtasks: [...(currentForm.subtasks || []), ""],
+    }));
+  }
 
 function updateSubtask(index, value) {
   setForm((currentForm) => ({
@@ -151,7 +167,7 @@ function removeSubtask(index) {
       subtasks: (form.subtasks || [])
         .map((subtask) => subtask.trim())
         .filter(Boolean)
-        .slice(0, 7),
+        .slice(0, maxSubtasks),
       priority: form.priority,
       start_datetime: selectedDate,
       end_datetime: null,
@@ -244,18 +260,22 @@ function removeSubtask(index) {
     </div>
   )}
 
-  {(form.subtasks || []).length < 7 && (
+  {showSubtaskAddButton && (
     <button
       type="button"
-      className="subtask-add-minimal-btn"
-      onClick={addSubtaskField}
+      className={
+        isSubtaskPremiumLocked
+          ? "subtask-add-minimal-btn premium-locked"
+          : "subtask-add-minimal-btn"
+      }
+      onClick={handleAddSubtask}
     >
       + Подзадача
     </button>
   )}
 
   <div className="field-counter">
-    {(form.subtasks || []).length}/7
+    {subtasksCount}/{maxSubtasks}
   </div>
 </div>
 

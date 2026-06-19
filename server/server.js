@@ -364,6 +364,12 @@ app.post("/api/exercise-metrics", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Укажите упражнение" });
     }
 
+    if (customExerciseName && !(await canCreateCustomExercises(req.user.id))) {
+      return res.status(403).json({
+        error: "Создание своих упражнений доступно только пользователям Premium",
+      });
+    }
+
     const result = await pool.query(
       `
       INSERT INTO user_exercise_metrics (
@@ -461,6 +467,12 @@ app.put("/api/exercise-metrics/:id", authMiddleware, async (req, res) => {
 
     if (!selectedExerciseId && !customExerciseName) {
       return res.status(400).json({ error: "Укажите упражнение" });
+    }
+
+    if (customExerciseName && !(await canCreateCustomExercises(req.user.id))) {
+      return res.status(403).json({
+        error: "Создание своих упражнений доступно только пользователям Premium",
+      });
     }
 
     const result = await pool.query(
@@ -1059,11 +1071,13 @@ app.post("/api/tasks", authMiddleware, async (req, res) => {
       categoryId = newCategory.rows[0].id;
     }
 
+    const maxSubtasks = await getMaxSubtasks(userId);
+
     const preparedSubtasks = Array.isArray(subtasks)
   ? subtasks
       .map((item) => String(item || "").trim())
       .filter(Boolean)
-      .slice(0, 7)
+      .slice(0, maxSubtasks)
       .map((title) => ({
         id: crypto.randomUUID(),
         title,
@@ -1262,6 +1276,14 @@ app.post("/api/workouts", authMiddleware, async (req, res) => {
         if (existingUserExercise.rows.length > 0) {
           userExerciseId = existingUserExercise.rows[0].id;
         } else {
+          if (!(await canCreateCustomExercises(userId))) {
+            await client.query("ROLLBACK");
+
+            return res.status(403).json({
+              error: "Создание своих упражнений доступно только пользователям Premium",
+            });
+          }
+
           const newUserExercise = await client.query(
             `
             INSERT INTO user_exercises (
@@ -1914,6 +1936,18 @@ app.get("/api/statistics", authMiddleware, requirePremium, async (req, res) => {
   }
 });
 
+async function getMaxSubtasks(userId) {
+  const subscription = await getUserSubscription(userId);
+
+  return subscription?.code === "premium" ? 7 : 3;
+}
+
+async function canCreateCustomExercises(userId) {
+  const subscription = await getUserSubscription(userId);
+
+  return subscription?.code === "premium";
+}
+
 async function checkTaskLimit(userId) {
   const subscription = await getUserSubscription(userId);
 
@@ -2106,7 +2140,7 @@ app.get("/api/exercise-guides", async (req, res) => {
 });
 
 //WW
-app.post("/api/exercises", authMiddleware, async (req, res) => {
+app.post("/api/exercises", authMiddleware, requirePremium, async (req, res) => {
   try {
     const { name, measureUnits, groupId } = req.body;
 
@@ -3130,6 +3164,8 @@ app.put("/api/tasks/:id", authMiddleware, async (req, res) => {
       });
     }
 
+    const maxSubtasks = await getMaxSubtasks(userId);
+
     const preparedSubtasks = Array.isArray(subtasks)
       ? subtasks
           .map((item) => {
@@ -3148,7 +3184,7 @@ app.put("/api/tasks/:id", authMiddleware, async (req, res) => {
             };
           })
           .filter((item) => item.title)
-          .slice(0, 7)
+          .slice(0, maxSubtasks)
       : [];
 
     const result = await pool.query(
@@ -3396,6 +3432,14 @@ app.put("/api/workouts/:taskId", authMiddleware, async (req, res) => {
         if (existingUserExercise.rows.length > 0) {
           userExerciseId = existingUserExercise.rows[0].id;
         } else {
+          if (!(await canCreateCustomExercises(userId))) {
+            await client.query("ROLLBACK");
+
+            return res.status(403).json({
+              error: "Создание своих упражнений доступно только пользователям Premium",
+            });
+          }
+
           const newUserExercise = await client.query(
             `
             INSERT INTO user_exercises (
